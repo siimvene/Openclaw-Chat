@@ -45,12 +45,14 @@ class GatewayClient: ObservableObject {
     // Multi-session support
     var sessionManager: SessionManager?
     
-    // Device ID for pairing (persisted)
+    // Device ID for pairing (persisted) - must be a stable unique identifier
     private var deviceId: String {
         if let id = UserDefaults.standard.string(forKey: "openclaw_device_id") {
             return id
         }
-        let id = "ios-\(UUID().uuidString.prefix(8))"
+        // Generate a 64-char hex string similar to what Safari sends
+        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased() +
+                 UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         UserDefaults.standard.set(id, forKey: "openclaw_device_id")
         return id
     }
@@ -302,8 +304,11 @@ class GatewayClient: ObservableObject {
         
         // Handle connect response
         if type == "res", let id = json["id"] as? String, id == "connect-1" {
+            print("[GW] Connect response: ok=\(json["ok"] ?? "nil")")
+            
             if let payload = json["payload"] as? [String: Any],
                payload["type"] as? String == "hello-ok" {
+                print("[GW] Connected successfully!")
                 isConnecting = false
                 isConnected = true
                 statusText = "Connected"
@@ -324,6 +329,8 @@ class GatewayClient: ObservableObject {
                 let errorInfo = json["error"] as? [String: Any]
                 let errorCode = errorInfo?["code"] as? String ?? "UNKNOWN"
                 let errorMessage = errorInfo?["message"] as? String ?? "Connection rejected"
+                
+                print("[GW] Connect error: \(errorCode) - \(errorMessage)")
                 
                 // If NOT_PAIRED, initiate pairing flow
                 if errorCode == "NOT_PAIRED" {
@@ -467,7 +474,7 @@ class GatewayClient: ObservableObject {
             "minProtocol": 3,
             "maxProtocol": 3,
             "client": [
-                "id": "webchat-ui",  // Use webchat-ui client ID for Control UI compatibility
+                "id": "webchat-ui",
                 "version": "1.0.0",
                 "platform": "ios",
                 "mode": "ui"
@@ -478,13 +485,15 @@ class GatewayClient: ObservableObject {
             "commands": [],
             "permissions": [:],
             "locale": Locale.current.identifier,
-            "userAgent": "OpenClaw-iOS/1.0.0"
+            "userAgent": "ClawChat-iOS/1.0.0"
         ]
         
         // Only include auth if token is not empty (allows Tailscale identity auth)
         if !token.isEmpty {
             params["auth"] = ["token": token]
         }
+        
+        print("[GW] Connect params: \(params)")
         
         let request: [String: Any] = [
             "type": "req",
