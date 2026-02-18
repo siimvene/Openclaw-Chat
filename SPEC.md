@@ -76,7 +76,7 @@
                     ▼
 ┌─────────────────────────────────────────┐
 │           OpenClaw Gateway              │
-│  (wss://openclaw.monkey-kanyu.ts.net)   │
+│  (wss://openclaw.your-tailnet.ts.net)   │
 └─────────────────────────────────────────┘
 ```
 
