@@ -9,10 +9,24 @@ class DeviceIdentity {
     
     private let privateKeyTag = "io.openclaw.device.privatekey"
     private let deviceTokenKey = "io.openclaw.device.token"
-    
+    private let installSentinelKey = "deviceIdentityInstalled"
+
     private var cachedPrivateKey: Curve25519.Signing.PrivateKey?
-    
-    private init() {}
+
+    private init() {
+        clearKeychainIfReinstalled()
+    }
+
+    /// Clears stale Keychain entries when the app has been freshly installed.
+    /// UserDefaults is wiped on delete but Keychain persists — detect the mismatch.
+    private func clearKeychainIfReinstalled() {
+        guard !UserDefaults.standard.bool(forKey: installSentinelKey) else { return }
+        // Fresh install: wipe any leftover keypair and tokens from previous install
+        let deleteQuery: [String: Any] = [kSecClass as String: kSecClassGenericPassword]
+        SecItemDelete(deleteQuery as CFDictionary)
+        UserDefaults.standard.set(true, forKey: installSentinelKey)
+        print("[DeviceIdentity] Fresh install detected — cleared stale Keychain entries")
+    }
     
     /// Get or generate the device's Ed25519 private key
     var privateKey: Curve25519.Signing.PrivateKey {
