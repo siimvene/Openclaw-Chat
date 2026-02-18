@@ -1,0 +1,2 @@
+Bug Fixes
+App version now displays correctly in Settings.
