@@ -38,6 +38,8 @@ targets:
       properties:
         CFBundleDisplayName: ClawChat
         CFBundleName: ClawChat
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
