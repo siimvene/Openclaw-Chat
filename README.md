@@ -21,6 +21,7 @@ A native iOS/iPadOS client for [OpenClaw](https://openclaw.io) - connect to your
 - **Multiple Sessions** - Organize conversations into separate sessions for different topics or projects
 - **Security Audit** - Built-in security scanner to check your gateway configuration
 - **Usage Tracking** - Monitor token usage and costs in real-time
+- **Image & File Sharing** - Attach photos from your camera or library to send to the AI for analysis
 - **Tailscale Integration** - Secure connectivity to your gateway over your Tailscale network
 
 ## Requirements
