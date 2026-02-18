@@ -24,31 +24,23 @@ struct StatusView: View {
                         value: gateway.isConnected ? "Connected" : "Disconnected"
                     )
                     
-                    StatusRow(icon: "tag", label: "Version", value: gateway.serverVersion)
+                    if gateway.serverVersion != "dev" && gateway.serverVersion != "Unknown" {
+                        StatusRow(icon: "tag", label: "Version", value: gateway.serverVersion)
+                    }
                     StatusRow(icon: "clock", label: "Uptime", value: formatUptime(gateway.uptimeMs / 1000))
                 }
                 
                 
                 // Today's usage
                 if let usage = usageData {
-                    Section("Usage (Today)") {
-                        StatusRow(icon: "arrow.down.doc", label: "Input Tokens", value: formatNumber(usage.todayInput))
-                        StatusRow(icon: "arrow.up.doc", label: "Output Tokens", value: formatNumber(usage.todayOutput))
-                        StatusRow(icon: "dollarsign.circle", label: "Today's Cost", value: usage.todayCost)
+                    Section("Today") {
+                        StatusRow(icon: "dollarsign.circle", label: "Cost", value: usage.todayCost)
+                        StatusRow(icon: "text.bubble", label: "Words In", value: formatTokensAsWords(usage.todayInput))
+                        StatusRow(icon: "text.bubble.fill", label: "Words Out", value: formatTokensAsWords(usage.todayOutput))
                     }
-                    
-                    // All-time totals
-                    Section("All-Time Totals") {
-                        StatusRow(icon: "sum", label: "Total Tokens", value: formatNumber(usage.totalTokens))
+
+                    Section("All Time") {
                         StatusRow(icon: "dollarsign.circle.fill", label: "Total Cost", value: usage.totalCost)
-                    }
-                    
-                    // Cache stats (if available)
-                    if usage.cacheReadTokens > 0 || usage.cacheWriteTokens > 0 {
-                        Section("Cache Usage") {
-                            StatusRow(icon: "arrow.triangle.2.circlepath", label: "Cache Read", value: formatNumber(usage.cacheReadTokens))
-                            StatusRow(icon: "square.and.arrow.down", label: "Cache Write", value: formatNumber(usage.cacheWriteTokens))
-                        }
                     }
                 }
                 
@@ -199,8 +191,6 @@ struct StatusView: View {
         let totalOutput = totals["output"] as? Int ?? 0
         let totalTokens = totals["totalTokens"] as? Int ?? (totalInput + totalOutput)
         let totalCostValue = totals["totalCost"] as? Double ?? 0
-        let cacheRead = totals["cacheRead"] as? Int ?? 0
-        let cacheWrite = totals["cacheWrite"] as? Int ?? 0
         
         // Get today's data (last item in daily array)
         var todayInput = 0
@@ -218,9 +208,7 @@ struct StatusView: View {
             todayOutput: todayOutput,
             todayCost: String(format: "$%.2f", todayCostValue),
             totalTokens: totalTokens,
-            totalCost: String(format: "$%.2f", totalCostValue),
-            cacheReadTokens: cacheRead,
-            cacheWriteTokens: cacheWrite
+            totalCost: String(format: "$%.2f", totalCostValue)
         )
     }
     
@@ -253,6 +241,16 @@ struct StatusView: View {
         formatter.numberStyle = .decimal
         return formatter.string(from: NSNumber(value: n)) ?? "\(n)"
     }
+
+    private func formatTokensAsWords(_ tokens: Int) -> String {
+        let words = Int(Double(tokens) * 0.75)
+        if words >= 1_000_000 {
+            return String(format: "%.1fM", Double(words) / 1_000_000)
+        } else if words >= 1_000 {
+            return String(format: "%.1fK", Double(words) / 1_000)
+        }
+        return "\(words)"
+    }
 }
 
 // MARK: - Supporting Views
@@ -284,8 +282,6 @@ struct UsageData {
     let todayCost: String
     let totalTokens: Int
     let totalCost: String
-    let cacheReadTokens: Int
-    let cacheWriteTokens: Int
 }
 
 #Preview {
