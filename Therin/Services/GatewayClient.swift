@@ -45,16 +45,15 @@ class GatewayClient: ObservableObject {
     // Multi-session support
     var sessionManager: SessionManager?
     
-    // Device ID for pairing (persisted) - must be a stable unique identifier
+    // Device identity for cryptographic authentication
+    private let deviceIdentity = DeviceIdentity.shared
+    
+    // Challenge nonce from gateway (for signing)
+    private var pendingNonce: String?
+    
+    // Device ID derived from keypair
     private var deviceId: String {
-        if let id = UserDefaults.standard.string(forKey: "openclaw_device_id") {
-            return id
-        }
-        // Generate a 64-char hex string similar to what Safari sends
-        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased() +
-                 UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        UserDefaults.standard.set(id, forKey: "openclaw_device_id")
-        return id
+        deviceIdentity.deviceId
     }
     
     var activeSessionKey: String {
@@ -223,13 +222,23 @@ class GatewayClient: ObservableObject {
         sendToGateway(text)
     }
     
+    /// Send a message with an image attachment
+    func sendMessageWithImage(_ text: String, imageData: Data) {
+        // Display message with image indicator
+        let userMessage = ChatMessage(role: .user, content: "📷 " + text)
+        messages.append(userMessage)
+        saveCurrentMessages()
+        
+        sendToGateway(text, imageData: imageData)
+    }
+    
     /// Send a message to the gateway without adding to chat history (for voice mode)
     func sendVoiceMessage(_ text: String) {
         isVoiceMode = true
-        sendToGateway(text)
+        sendToGateway(text, imageData: nil)
     }
     
-    private func sendToGateway(_ text: String) {
+    private func sendToGateway(_ text: String, imageData: Data? = nil) {
         messageId += 1
         let id = "agent-\(messageId)"
         let idempotencyKey = "ios-\(Date().timeIntervalSince1970)-\(UUID().uuidString.prefix(8))"
@@ -239,6 +248,19 @@ class GatewayClient: ObservableObject {
             "idempotencyKey": idempotencyKey,
             "sessionKey": activeSessionKey
         ]
+        
+        // Add image as attachment if present (compress first to stay under 5MB limit)
+        if let imageData = imageData,
+           let image = UIImage(data: imageData) {
+            let (compressed, mimeType) = compressImage(image)
+            params["attachments"] = [
+                [
+                    "type": "image",
+                    "mimeType": mimeType,
+                    "content": compressed.base64EncodedString()
+                ]
+            ]
+        }
         
         // Add model override if selected
         let selectedModel = UserDefaults.standard.string(forKey: "selectedModel") ?? ""
@@ -255,6 +277,41 @@ class GatewayClient: ObservableObject {
         
         send(request)
         isTyping = true
+    }
+    
+    private func compressImage(_ image: UIImage) -> (Data, String) {
+        let maxDim: CGFloat = 1600
+        let scale = min(maxDim / image.size.width, maxDim / image.size.height, 1.0)
+        let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
+        return (resized.jpegData(compressionQuality: 0.7) ?? Data(), "image/jpeg")
+    }
+
+    private func detectImageMimeType(_ data: Data) -> String? {
+        guard data.count >= 8 else { return nil }
+        
+        var header = [UInt8](repeating: 0, count: 8)
+        data.copyBytes(to: &header, count: 8)
+        
+        // PNG: 89 50 4E 47 0D 0A 1A 0A
+        if header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47 {
+            return "image/png"
+        }
+        // JPEG: FF D8 FF
+        if header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF {
+            return "image/jpeg"
+        }
+        // GIF: 47 49 46
+        if header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46 {
+            return "image/gif"
+        }
+        // WebP: 52 49 46 46 ... 57 45 42 50
+        if header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 {
+            return "image/webp"
+        }
+        
+        return nil
     }
     
     func clearMessages() {
@@ -298,6 +355,12 @@ class GatewayClient: ObservableObject {
         let event = json["event"] as? String
         
         if type == "event" && event == "connect.challenge" {
+            // Capture the nonce for signing
+            if let payload = json["payload"] as? [String: Any],
+               let nonce = payload["nonce"] as? String {
+                pendingNonce = nonce
+                print("[GW] Received challenge nonce: \(nonce.prefix(20))...")
+            }
             sendConnect()
             return
         }
@@ -305,6 +368,7 @@ class GatewayClient: ObservableObject {
         // Handle connect response
         if type == "res", let id = json["id"] as? String, id == "connect-1" {
             print("[GW] Connect response: ok=\(json["ok"] ?? "nil")")
+            print("[GW] Full connect response: \(json)")
             
             if let payload = json["payload"] as? [String: Any],
                payload["type"] as? String == "hello-ok" {
@@ -313,6 +377,21 @@ class GatewayClient: ObservableObject {
                 isConnected = true
                 statusText = "Connected"
                 reconnectAttempts = 0
+                pendingNonce = nil
+                
+                // Extract and store device token if provided
+                if let auth = payload["auth"] as? [String: Any],
+                   let deviceToken = auth["deviceToken"] as? String,
+                   let host = gatewayURL {
+                    let hostKey = extractHost(from: host)
+                    deviceIdentity.storeDeviceToken(deviceToken, for: hostKey)
+                    print("[GW] Stored device token for \(hostKey)")
+                    
+                    // Log granted scopes
+                    if let scopes = auth["scopes"] as? [String] {
+                        print("[GW] Granted scopes: \(scopes.joined(separator: ", "))")
+                    }
+                }
                 
                 // Extract server info
                 if let server = payload["server"] as? [String: Any] {
@@ -332,10 +411,24 @@ class GatewayClient: ObservableObject {
                 
                 print("[GW] Connect error: \(errorCode) - \(errorMessage)")
                 
-                // If NOT_PAIRED, initiate pairing flow
+                // If NOT_PAIRED, the gateway has auto-created a pairing request
+                // We need to wait for approval and keep reconnecting
                 if errorCode == "NOT_PAIRED" {
-                    statusText = "Requesting pairing..."
-                    sendPairRequest()
+                    let details = errorInfo?["details"] as? [String: Any]
+                    let requestId = details?["requestId"] as? String
+                    print("[GW] Pairing required, requestId: \(requestId ?? "unknown")")
+                    
+                    isPairing = true
+                    isConnecting = true
+                    statusText = "Waiting for approval..."
+                    
+                    // Keep reconnecting to check if pairing was approved
+                    // Use a slower reconnect interval while waiting for approval
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+                        guard let self = self, self.isPairing, let url = self.gatewayURL else { return }
+                        self.isConnecting = false
+                        self.connect(url: url, token: self.token)
+                    }
                     return
                 }
                 
@@ -355,6 +448,22 @@ class GatewayClient: ObservableObject {
         // Handle pairing events
         if type == "event" && event == "node.pair.resolved" {
             handlePairResolved(json)
+            return
+        }
+        
+        if type == "event" && event == "device.pair.resolved" {
+            handleDevicePairResolved(json)
+            return
+        }
+        
+        // Handle device token rotation/revocation
+        if type == "event" && event == "device.token.rotate" {
+            handleDeviceTokenRotate(json)
+            return
+        }
+        
+        if type == "event" && event == "device.token.revoke" {
+            handleDeviceTokenRevoke()
             return
         }
         
@@ -439,6 +548,9 @@ class GatewayClient: ObservableObject {
             } else if phase == "end" {
                 isTyping = false
                 currentStreamingMessage = nil
+                if let error = data["error"] as? String {
+                    messages.append(ChatMessage(role: .system, content: "Error: \(error)"))
+                }
                 if !isVoiceMode {
                     saveCurrentMessages()
                 }
@@ -488,12 +600,50 @@ class GatewayClient: ObservableObject {
             "userAgent": "ClawChat-iOS/1.0.0"
         ]
         
-        // Only include auth if token is not empty (allows Tailscale identity auth)
+        // Include auth with gateway token
+        // Note: deviceToken is only received, not sent - the device identity (keypair) authenticates us
+        var authBlock: [String: Any] = [:]
         if !token.isEmpty {
-            params["auth"] = ["token": token]
+            authBlock["token"] = token
+        }
+        if !authBlock.isEmpty {
+            params["auth"] = authBlock
         }
         
-        print("[GW] Connect params: \(params)")
+        // Build device identity block with signed challenge
+        let signedAtMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let clientId = "webchat-ui"
+        let clientMode = "ui"
+        let role = "operator"
+        let scopes = ["operator.read", "operator.write"]
+        
+        var deviceBlock: [String: Any] = [
+            "id": deviceId,
+            "publicKey": deviceIdentity.publicKeyBase64
+        ]
+        
+        // Sign the full payload if we have a nonce
+        if let nonce = pendingNonce {
+            let tokenForSigning = authBlock["token"] as? String ?? ""
+            if let signature = deviceIdentity.signPayload(
+                clientId: clientId,
+                clientMode: clientMode,
+                role: role,
+                scopes: scopes,
+                signedAtMs: signedAtMs,
+                token: tokenForSigning,
+                nonce: nonce
+            ) {
+                deviceBlock["nonce"] = nonce
+                deviceBlock["signature"] = signature
+                deviceBlock["signedAt"] = signedAtMs
+                print("[GW] Signed device auth payload")
+            }
+        }
+        
+        params["device"] = deviceBlock
+        
+        print("[GW] Connect with device identity: \(deviceId.prefix(16))...")
         
         let request: [String: Any] = [
             "type": "req",
@@ -503,6 +653,18 @@ class GatewayClient: ObservableObject {
         ]
         
         send(request)
+    }
+    
+    // MARK: - Helpers
+    
+    private func extractHost(from url: String) -> String {
+        var cleanUrl = url
+        if cleanUrl.hasPrefix("wss://") {
+            cleanUrl = String(cleanUrl.dropFirst(6))
+        } else if cleanUrl.hasPrefix("ws://") {
+            cleanUrl = String(cleanUrl.dropFirst(5))
+        }
+        return cleanUrl.components(separatedBy: "/").first ?? cleanUrl
     }
     
     // MARK: - Device Pairing
@@ -611,15 +773,65 @@ class GatewayClient: ObservableObject {
         disconnect()
     }
     
+    private func handleDevicePairResolved(_ json: [String: Any]) {
+        guard let payload = json["payload"] as? [String: Any] else { return }
+        
+        let status = payload["status"] as? String
+        let resolvedDeviceId = payload["deviceId"] as? String
+        
+        print("[GW] Device pair resolved: status=\(status ?? "nil"), deviceId=\(resolvedDeviceId ?? "nil")")
+        
+        guard resolvedDeviceId == deviceId else { return }
+        
+        if status == "approved" {
+            print("[GW] Device pairing approved!")
+            isPairing = false
+            statusText = "Approved!"
+        } else if status == "rejected" {
+            isPairing = false
+            isConnecting = false
+            lastError = "Device pairing rejected"
+            statusText = "Pairing rejected"
+            webSocket?.cancel(with: .normalClosure, reason: nil)
+        }
+    }
+    
+    private func handleDeviceTokenRotate(_ json: [String: Any]) {
+        guard let payload = json["payload"] as? [String: Any],
+              let newToken = payload["token"] as? String,
+              let host = gatewayURL else { return }
+        
+        let hostKey = extractHost(from: host)
+        deviceIdentity.storeDeviceToken(newToken, for: hostKey)
+        print("[GW] Device token rotated and stored")
+    }
+    
+    private func handleDeviceTokenRevoke() {
+        guard let host = gatewayURL else { return }
+        
+        let hostKey = extractHost(from: host)
+        deviceIdentity.clearDeviceToken(for: hostKey)
+        print("[GW] Device token revoked - will need to re-authenticate")
+        
+        lastError = "Device token revoked"
+        statusText = "Token revoked"
+        disconnect()
+    }
+    
     private func send(_ dict: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: dict),
               let text = String(data: data, encoding: .utf8) else {
+            print("[GW] Failed to serialize message to JSON")
             return
         }
         
+        print("[GW] Sending WebSocket message, size: \(text.count) bytes")
+        
         webSocket?.send(.string(text)) { error in
             if let error = error {
-                print("Send error: \(error)")
+                print("[GW] WebSocket send error: \(error)")
+            } else {
+                print("[GW] WebSocket message sent successfully")
             }
         }
     }
@@ -628,9 +840,16 @@ class GatewayClient: ObservableObject {
         print("[GW] Disconnected: \(error.localizedDescription)")
         isConnecting = false
         isConnected = false
-        statusText = "Disconnected"
         lastError = error.localizedDescription
-        
+
+        // Don't auto-reconnect during pairing — the pairing timer handles retries
+        if isPairing {
+            statusText = "Waiting for approval..."
+            print("[GW] In pairing flow, skipping auto-reconnect")
+            return
+        }
+
+        statusText = "Disconnected"
         reconnectAttempts += 1
         print("[GW] Reconnect attempt \(reconnectAttempts)/5")
         if reconnectAttempts < 5, let url = gatewayURL {

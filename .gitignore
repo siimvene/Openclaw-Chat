@@ -49,3 +49,6 @@ Thumbs.db
 # Secrets (never commit)
 *.xcconfig
 !*.xcconfig.template
+
+# Agent session docs (local reference only)
+.agent/

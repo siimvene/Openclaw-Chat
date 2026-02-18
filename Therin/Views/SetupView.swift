@@ -12,6 +12,7 @@ struct SetupView: View {
     @State private var tokenInput = ""
     @State private var isConnecting = false
     @State private var errorMessage: String?
+    @State private var showingHelp = false
     
     var body: some View {
         GeometryReader { geometry in
@@ -124,6 +125,16 @@ struct SetupView: View {
                     .frame(maxWidth: maxFormWidth)
                     .padding(.horizontal, horizontalPadding)
                     
+                    // Help link
+                    Button(action: { showingHelp = true }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "questionmark.circle")
+                            Text("First time setup help")
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(Color(white: 0.5))
+                    }
+                    
                     Spacer()
                         .frame(height: 40)
                 }
@@ -134,6 +145,9 @@ struct SetupView: View {
         .onAppear {
             if !gatewayURL.isEmpty { urlInput = gatewayURL }
             if !gatewayToken.isEmpty { tokenInput = gatewayToken }
+        }
+        .sheet(isPresented: $showingHelp) {
+            SetupHelpView()
         }
     }
     
@@ -159,6 +173,10 @@ struct SetupView: View {
         gatewayURL = url
         gatewayToken = token
         
+        // Sync to App Group for Share Extension
+        AppGroupStorage.shared.gatewayURL = url
+        AppGroupStorage.shared.gatewayToken = token
+        
         // Connect
         gateway.connect(url: url, token: token)
         
@@ -169,7 +187,99 @@ struct SetupView: View {
     }
 }
 
+// MARK: - Setup Help View
+
+struct SetupHelpView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    helpSection(
+                        icon: "1.circle.fill",
+                        title: "Enter Gateway Details",
+                        content: "Enter your OpenClaw gateway URL (e.g., openclaw.your-tailnet.ts.net) and your access token from ~/.openclaw/openclaw.json → gateway.auth.token"
+                    )
+                    
+                    helpSection(
+                        icon: "2.circle.fill",
+                        title: "Device Pairing",
+                        content: "On first connection, you'll see \"Waiting for approval...\" — this is normal. Your gateway needs to approve this device for security."
+                    )
+                    
+                    helpSection(
+                        icon: "3.circle.fill",
+                        title: "Approve on Gateway",
+                        content: "On your gateway server, run:\n\nopenclaw devices list\nopenclaw devices approve <requestId>\n\nReplace <requestId> with the ID shown in the list."
+                    )
+                    
+                    helpSection(
+                        icon: "checkmark.circle.fill",
+                        title: "You're Connected",
+                        content: "Once approved, the app connects automatically. Future connections from this device won't need re-approval."
+                    )
+                    
+                    Divider()
+                        .background(Color(white: 0.3))
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Auto-Approval (Optional)")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        
+                        Text("To auto-approve devices with valid tokens, add this cron job on your gateway:")
+                            .font(.subheadline)
+                            .foregroundColor(Color(white: 0.7))
+                        
+                        Text("* * * * * openclaw devices approve --latest")
+                            .font(.system(.caption, design: .monospaced))
+                            .padding(12)
+                            .background(Color(white: 0.15))
+                            .cornerRadius(8)
+                            .foregroundColor(Color(white: 0.8))
+                    }
+                }
+                .padding(24)
+            }
+            .background(Color.black)
+            .navigationTitle("Setup Help")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+    
+    private func helpSection(icon: String, title: String, content: String) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundColor(.blue)
+                .frame(width: 32)
+            
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundColor(.white)
+                
+                Text(content)
+                    .font(.subheadline)
+                    .foregroundColor(Color(white: 0.7))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
 #Preview {
     SetupView()
         .environmentObject(GatewayClient())
+}
+
+#Preview("Help") {
+    SetupHelpView()
 }

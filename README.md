@@ -38,10 +38,35 @@ A native iOS/iPadOS client for [OpenClaw](https://openclaw.io) - connect to your
 
 ## Configuration
 
+### Initial Setup
+
 1. Launch the app
 2. Enter your OpenClaw gateway URL (e.g., `openclaw.your-tailnet.ts.net`)
 3. Enter your gateway access token (found in `~/.openclaw/openclaw.json` → `gateway.auth.token`)
 4. Tap Connect
+
+### Device Pairing (First Connection Only)
+
+OpenClaw requires device pairing for security. On first connection, the app will show "Waiting for approval..." while a pairing request is created on your gateway.
+
+**To approve the device**, run this command on your gateway server:
+
+```bash
+# List pending pairing requests
+openclaw devices list
+
+# Approve the pending request
+openclaw devices approve <requestId>
+```
+
+Once approved, the app will automatically connect. Future connections from the same device will work without re-approval.
+
+**Auto-approval (optional):** To automatically approve devices that connect with a valid token, you can add a cron job on your gateway:
+
+```bash
+# Add to crontab -e
+* * * * * /path/to/openclaw devices approve --latest 2>/dev/null
+```
 
 ## Privacy
 

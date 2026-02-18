@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct ChatView: View {
     @EnvironmentObject var gateway: GatewayClient
@@ -8,6 +9,14 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
     @State private var showSettings = false
     @State private var keyboardHeight: CGFloat = 0
+    
+    // Photo/Camera state
+    @State private var showingAttachmentOptions = false
+    @State private var showingPhotoPicker = false
+    @State private var showingCamera = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var pendingImageData: Data?
+    @State private var pendingImagePreview: UIImage?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -123,42 +132,136 @@ struct ChatView: View {
     }
     
     private var inputArea: some View {
-        HStack(spacing: 8) {
-            VoiceButton { transcribedText in
-                inputText = transcribedText
-                sendMessage()
+        VStack(spacing: 8) {
+            // Image preview if pending
+            if let preview = pendingImagePreview {
+                HStack {
+                    Image(uiImage: preview)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 80, height: 80)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            Button {
+                                clearPendingImage()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title2)
+                                    .foregroundColor(.white)
+                                    .shadow(radius: 2)
+                            }
+                            .offset(x: 8, y: -8),
+                            alignment: .topTrailing
+                        )
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
             }
             
-            HStack {
-                TextField("Message", text: $inputText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...5)
-                    .focused($isInputFocused)
-                    .onSubmit(sendMessage)
-                
-                Button(action: sendMessage) {
-                    Image(systemName: "arrow.up.circle.fill")
+            HStack(spacing: 8) {
+                // Attachment button
+                Button {
+                    showingAttachmentOptions = true
+                } label: {
+                    Image(systemName: "plus.circle.fill")
                         .font(.title)
-                        .foregroundColor(inputText.isEmpty ? .gray : .blue)
+                        .foregroundColor(.gray)
                 }
-                .disabled(inputText.isEmpty)
+                .confirmationDialog("Add Attachment", isPresented: $showingAttachmentOptions) {
+                    Button("Photo Library") {
+                        showingPhotoPicker = true
+                    }
+                    Button("Take Photo") {
+                        showingCamera = true
+                    }
+                    Button("Cancel", role: .cancel) {}
+                }
+                
+                VoiceButton { transcribedText in
+                    inputText = transcribedText
+                    sendMessage()
+                }
+                
+                HStack {
+                    TextField("Message", text: $inputText, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...5)
+                        .focused($isInputFocused)
+                        .onSubmit(sendMessage)
+                    
+                    Button(action: sendMessage) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title)
+                            .foregroundColor(canSend ? .blue : .gray)
+                    }
+                    .disabled(!canSend)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(white: 0.15))
+                .cornerRadius(20)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(Color(white: 0.15))
-            .cornerRadius(20)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
         .background(Color(white: 0.1))
+        .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedPhotoItem, matching: .images)
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            Task {
+                await loadSelectedPhoto(newItem)
+            }
+        }
+        .fullScreenCover(isPresented: $showingCamera) {
+            CameraView { imageData in
+                if let data = imageData, let image = UIImage(data: data) {
+                    pendingImageData = data
+                    pendingImagePreview = image
+                }
+            }
+        }
+    }
+    
+    private var canSend: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingImageData != nil
+    }
+    
+    private func clearPendingImage() {
+        pendingImageData = nil
+        pendingImagePreview = nil
+        selectedPhotoItem = nil
+    }
+    
+    private func loadSelectedPhoto(_ item: PhotosPickerItem?) async {
+        guard let item = item else { return }
+        
+        do {
+            if let data = try await item.loadTransferable(type: Data.self) {
+                await MainActor.run {
+                    pendingImageData = data
+                    if let image = UIImage(data: data) {
+                        pendingImagePreview = image
+                    }
+                }
+            }
+        } catch {
+            print("[ChatView] Failed to load photo: \(error)")
+        }
     }
     
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty || pendingImageData != nil else { return }
         
-        inputText = ""
-        gateway.sendMessage(text)
+        let message = text.isEmpty ? "Analyze this image" : text
+        
+        if let imageData = pendingImageData {
+            inputText = ""
+            clearPendingImage()
+            gateway.sendMessageWithImage(message, imageData: imageData)
+        } else {
+            inputText = ""
+            gateway.sendMessage(message)
+        }
     }
     
     private func scrollToBottom(proxy: ScrollViewProxy) {
