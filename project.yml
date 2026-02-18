@@ -18,8 +18,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.kleidia.clawchat
         PRODUCT_NAME: ClawChat
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: "2"
         DEVELOPMENT_TEAM: D7HDY2ST3C
         CODE_SIGN_STYLE: Automatic
         INFOPLIST_GENERATION_MODE: GeneratedByXcode
@@ -64,8 +64,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.kleidia.clawchat.share
         PRODUCT_NAME: ShareExtension
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: "2"
         DEVELOPMENT_TEAM: D7HDY2ST3C
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1,2"
