@@ -1,6 +1,8 @@
 # OpenClaw Chat
 
-A native iOS/iPadOS client for [OpenClaw](https://openclaw.io) - connect to your self-hosted AI gateway from anywhere.
+A native iOS/iPadOS client for [OpenClaw](https://openclaw.io) — AI on your terms, running on your hardware.
+
+**Your conversations never leave your control.** Unlike AI apps that route everything through third-party cloud services (ChatGPT, Claude.ai, Discord bots, WhatsApp integrations), OpenClaw Chat connects directly to your own self-hosted gateway. No middlemen, no data harvesting, no subscription lock-in.
 
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)
 ![iOS](https://img.shields.io/badge/iOS-17.0+-blue.svg)
@@ -79,7 +81,9 @@ Once approved, the app will automatically connect. Future connections from the s
 
 ## Privacy
 
-All communication happens directly between your device and your gateway. No data passes through third-party servers. See [PRIVACY.md](PRIVACY.md) for details.
+Every message goes directly from your phone to your gateway — nothing else. No analytics, no telemetry, no third-party SDKs phoning home. Your conversations, images, and voice recordings never touch any server you don't own.
+
+This is the fundamental difference from apps like ChatGPT, Claude.ai, or AI bots on WhatsApp and Discord: with those, your data lives on someone else's infrastructure, subject to their terms, their retention policies, and their business model. With OpenClaw Chat, it's yours.
 
 ## License
 
