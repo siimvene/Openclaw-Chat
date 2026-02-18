@@ -96,8 +96,8 @@ struct SettingsView: View {
             }
             
             Section("About") {
-                LabeledContent("Version", value: "1.0.0")
-                LabeledContent("Build", value: "OpenClaw iOS")
+                LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
+                LabeledContent("Build", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "")
             }
         }
         .navigationTitle("Settings")
