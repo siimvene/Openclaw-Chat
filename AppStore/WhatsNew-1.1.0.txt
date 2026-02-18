@@ -1,0 +1,11 @@
+Image Sharing
+Send photos directly in chat — capture with your camera or pick from your library. The AI can analyze, describe, and discuss your images.
+
+Share Extension
+Share content to ClawChat from any app. Found something interesting in Safari or Photos? Tap Share → ClawChat and it goes straight to your conversation.
+
+Improved Reliability
+Fixed a bug where the app would repeatedly reconnect during device pairing. Connection errors are now shown in chat instead of disappearing silently.
+
+Requirements
+This update requires OpenClaw gateway 2026.2.17 or later. Update your gateway before upgrading the app.
