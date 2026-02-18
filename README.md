@@ -6,6 +6,14 @@ A native iOS/iPadOS client for [OpenClaw](https://openclaw.io) - connect to your
 ![iOS](https://img.shields.io/badge/iOS-17.0+-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
+## Screenshots
+
+<p float="left">
+  <img src="docs/screenshots/screenshot-sessions.png" width="30%" alt="Sessions" />
+  <img src="docs/screenshots/screenshot-chat.png" width="30%" alt="Chat" />
+  <img src="docs/screenshots/screenshot-status.png" width="30%" alt="Status" />
+</p>
+
 ## Features
 
 - **Chat Interface** - Natural conversation with your AI assistant with real-time streaming responses
