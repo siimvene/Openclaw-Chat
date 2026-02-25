@@ -926,4 +926,35 @@ class GatewayClient: ObservableObject {
         guard let response = await sendRequest(method: "models.list") else { return nil }
         return response["models"] as? [[String: Any]]
     }
+    // MARK: - Server-side TTS
+    
+    /// Convert text to speech using gateway TTS service (ElevenLabs)
+    func convertToSpeech(_ text: String) async -> Data? {
+        guard isConnected else {
+            print("[TTS] Not connected to gateway")
+            return nil
+        }
+        
+        let params: [String: Any] = [
+            "text": text,
+            "provider": "elevenlabs"
+        ]
+        
+        guard let response = await sendRequest(method: "tts.convert", params: params) else {
+            print("[TTS] No response from gateway")
+            return nil
+        }
+        
+        if let audioBase64 = response["audio"] as? String,
+           let data = Data(base64Encoded: audioBase64) {
+            print("[TTS] Received \(data.count) bytes of audio")
+            return data
+        }
+        
+        if let errorMsg = response["error"] as? String {
+            print("[TTS] Error: \(errorMsg)")
+        }
+        
+        return nil
+    }
 }

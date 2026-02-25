@@ -371,4 +371,45 @@ class VoiceInput: ObservableObject {
         isRecording = false
         audioLevel = 0
     }
+    
+    // MARK: - Server-side TTS Playback
+    
+    private var audioPlayer: AVAudioPlayer?
+    
+    /// Play audio data from server-side TTS
+    func playServerAudio(_ data: Data) {
+        if isRecording { stopRecordingInternal() }
+        if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
+        
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("[Voice] Server TTS audio session error: \(error)")
+            return
+        }
+        
+        do {
+            audioPlayer = try AVAudioPlayer(data: data)
+            audioPlayer?.prepareToPlay()
+            isSpeaking = true
+            print("[Voice] Playing server TTS audio")
+            audioPlayer?.play()
+            monitorAudioPlayback()
+        } catch {
+            print("[Voice] Failed to play server audio: \(error)")
+        }
+    }
+    
+    private func monitorAudioPlayback() {
+        Task { @MainActor in
+            while audioPlayer?.isPlaying == true {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            isSpeaking = false
+            audioPlayer = nil
+            print("[Voice] Server TTS finished")
+        }
+    }
 }

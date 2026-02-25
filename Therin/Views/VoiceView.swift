@@ -3,6 +3,7 @@ import SwiftUI
 struct VoiceView: View {
     @EnvironmentObject var gateway: GatewayClient
     @StateObject private var voice = VoiceInput()
+    @StateObject private var ttsStreamer = TTSStreamer()
     @State private var voiceHistory: [VoiceExchange] = []
     @State private var isWaitingForResponse = false
     @State private var currentResponse = ""
@@ -23,6 +24,7 @@ struct VoiceView: View {
             .toolbar { toolbarContent }
             .onAppear {
                 // Set up auto-send callback for when voice auto-stops after silence
+                ttsStreamer.connect()
                 voice.onFinalTranscription = { text in
                     sendVoiceMessage(text)
                 }
@@ -274,7 +276,25 @@ struct VoiceView: View {
         }
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            self.voice.speak(content)
+            self.ttsStreamer.streamSpeech(content)
+        }
+    }
+    
+    // MARK: - Server-side TTS
+    
+    private func speakWithServerTTS(_ content: String) {
+        Task {
+            if let audioData = await gateway.convertToSpeech(content) {
+                print("[VoiceView] Using server-side TTS")
+                await MainActor.run {
+                    voice.playServerAudio(audioData)
+                }
+            } else {
+                print("[VoiceView] Falling back to local TTS")
+                await MainActor.run {
+                    voice.speak(content)
+                }
+            }
         }
     }
 }
@@ -536,6 +556,11 @@ struct VoiceButton: View {
         }
         .disabled(!voice.isAuthorized)
         .opacity(voice.isAuthorized ? 1.0 : 0.4)
+        .onAppear {
+            voice.onFinalTranscription = { text in
+                onTranscription(text)
+            }
+        }
         .onChange(of: voice.isRecording) { _, recording in
             if recording {
                 withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
