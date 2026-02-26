@@ -40,6 +40,7 @@ class GatewayClient: ObservableObject {
     private var token: String = ""
     private var messageId = 0
     private var currentStreamingMessage: UUID?
+    private var responseBuffer = ""  // Buffer for non-streaming display
     private var isVoiceMode = false  // When true, responses don't go to chat history
     
     // Multi-session support
@@ -224,8 +225,8 @@ class GatewayClient: ObservableObject {
     
     /// Send a message with an image attachment
     func sendMessageWithImage(_ text: String, imageData: Data) {
-        // Display message with image indicator
-        let userMessage = ChatMessage(role: .user, content: "📷 " + text)
+        // Display message with image thumbnail
+        let userMessage = ChatMessage(role: .user, content: text, imageData: imageData)
         messages.append(userMessage)
         saveCurrentMessages()
         
@@ -524,15 +525,8 @@ class GatewayClient: ObservableObject {
                 // Voice mode: accumulate in voiceResponse, don't add to chat
                 voiceResponse += delta
             } else {
-                // Chat mode: add to messages as before
-                if currentStreamingMessage == nil {
-                    isTyping = false
-                    let newMessage = ChatMessage(role: .assistant, content: delta)
-                    currentStreamingMessage = newMessage.id
-                    messages.append(newMessage)
-                } else if let idx = messages.firstIndex(where: { $0.id == currentStreamingMessage }) {
-                    messages[idx].content += delta
-                }
+                // Chat mode: buffer response, show all at once when complete
+                responseBuffer += delta
             }
         }
         
@@ -542,6 +536,7 @@ class GatewayClient: ObservableObject {
             
             if phase == "start" {
                 isTyping = true
+                responseBuffer = ""  // Clear buffer for new response
                 if isVoiceMode {
                     voiceResponse = ""  // Clear for new response
                 }
@@ -550,6 +545,10 @@ class GatewayClient: ObservableObject {
                 currentStreamingMessage = nil
                 if let error = data["error"] as? String {
                     messages.append(ChatMessage(role: .system, content: "Error: \(error)"))
+                } else if !isVoiceMode && !responseBuffer.isEmpty {
+                    // Show complete response all at once
+                    messages.append(ChatMessage(role: .assistant, content: responseBuffer))
+                    responseBuffer = ""
                 }
                 if !isVoiceMode {
                     saveCurrentMessages()

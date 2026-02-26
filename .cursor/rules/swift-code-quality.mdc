@@ -1,0 +1,77 @@
+---
+name: swift-code-quality
+description: Swift/iOS code quality rules to avoid AI slop
+alwaysApply: true
+---
+
+# Swift Code Quality Rules
+
+## Avoid AI Slop Patterns
+
+When generating Swift code, DO NOT:
+
+1. **Over-comment** - Don't explain obvious code
+   ```swift
+   // BAD: Increment counter by one
+   counter += 1
+   
+   // GOOD: Just the code, no comment needed
+   counter += 1
+   ```
+
+2. **Unnecessary optionality** - Don't add nil checks for non-optional values
+   ```swift
+   // BAD
+   if let value = nonOptionalValue {
+       use(value)
+   }
+   
+   // GOOD
+   use(nonOptionalValue)
+   ```
+
+3. **Defensive do/catch** - Don't wrap trusted internal calls
+   ```swift
+   // BAD
+   do {
+       internalMethod()
+   } catch {
+       // This can never throw
+   }
+   ```
+
+4. **Inconsistent naming** - Use the same name for the same concept
+   ```swift
+   // BAD: messageId, id, msgId, identifier all referring to same thing
+   // GOOD: Pick one (id) and use it consistently
+   ```
+
+5. **Force unwrapping without justification**
+   ```swift
+   // BAD
+   let value = optionalValue!
+   
+   // GOOD
+   guard let value = optionalValue else { return }
+   ```
+
+6. **Leftover debug code**
+   ```swift
+   // BAD
+   print("DEBUG: \(value)")
+   // print("old code")
+   ```
+
+## Match Existing Style
+
+- Look at surrounding code before making changes
+- Use the same patterns already established in the file
+- Keep changes minimal and focused
+
+## SwiftUI Specifics
+
+- Prefer `@State` for local view state
+- Use `@EnvironmentObject` for shared dependencies
+- Keep views small and composable
+- Use `private` for internal state variables
+- Use computed properties for derived values

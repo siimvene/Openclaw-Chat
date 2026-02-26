@@ -9,6 +9,7 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
     @State private var showSettings = false
     @State private var keyboardHeight: CGFloat = 0
+    @State private var scrollTrigger = false
     
     // Photo/Camera state
     @State private var showingAttachmentOptions = false
@@ -20,10 +21,8 @@ struct ChatView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             header
             
-            // Messages
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -41,51 +40,54 @@ struct ChatView: View {
                     .padding(.vertical, 12)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .defaultScrollAnchor(.bottom)
+                
                 .contentShape(Rectangle())
-                .onTapGesture {
-                    isInputFocused = false
-                }
-                .onChange(of: gateway.messages.count) {
-                    scrollToBottom(proxy: proxy)
-                }
-                .onChange(of: gateway.isTyping) {
-                    scrollToBottom(proxy: proxy)
-                }
-                .onChange(of: keyboardHeight) { _, _ in
+                .onTapGesture { isInputFocused = false }
+                .onAppear {
+                    // Scroll to bottom when view loads with existing messages
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         scrollToBottom(proxy: proxy)
                     }
                 }
+                .onChange(of: gateway.messages.count) { scrollToBottom(proxy: proxy) }
+                .onChange(of: gateway.messages.last?.content) { _, _ in
+                    // Scroll during streaming as message grows
+                    scrollToBottom(proxy: proxy)
+                }
+                .onChange(of: gateway.isTyping) { scrollToBottom(proxy: proxy) }
+                .onChange(of: keyboardHeight) { _, _ in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { scrollToBottom(proxy: proxy) }
+                }
+                .onChange(of: inputText) { _, newText in
+                    if newText.contains("\n") || newText.count > 60 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { scrollToBottom(proxy: proxy) }
+                    }
+                }
+                .onChange(of: scrollTrigger) { _, _ in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { scrollToBottom(proxy: proxy) }
+                }
             }
             
-            // Input area with keyboard offset
             inputArea
-            
-            // Keyboard spacer
-            Color.clear
-                .frame(height: keyboardHeight)
+            Color.clear.frame(height: keyboardHeight)
         }
         .background(Color.black)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
             if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
-                    // Keyboard height minus tab bar and safe area
                     keyboardHeight = max(0, frame.height - 85)
                 }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
-                keyboardHeight = 0
-            }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) { keyboardHeight = 0 }
         }
     }
     
     private var header: some View {
         HStack {
             Button {
-                selectedTab = 0 // Go to Sessions
+                selectedTab = 0
             } label: {
                 HStack(spacing: 10) {
                     Image("Logo")
@@ -114,11 +116,8 @@ struct ChatView: View {
             
             Spacer()
             
-            // Clear chat button
             if !gateway.messages.isEmpty {
-                Button {
-                    gateway.clearMessages()
-                } label: {
+                Button { gateway.clearMessages() } label: {
                     Image(systemName: "trash")
                         .font(.body)
                         .foregroundColor(.secondary)
@@ -133,7 +132,6 @@ struct ChatView: View {
     
     private var inputArea: some View {
         VStack(spacing: 8) {
-            // Image preview if pending
             if let preview = pendingImagePreview {
                 HStack {
                     Image(uiImage: preview)
@@ -142,9 +140,7 @@ struct ChatView: View {
                         .frame(width: 80, height: 80)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .overlay(
-                            Button {
-                                clearPendingImage()
-                            } label: {
+                            Button { clearPendingImage() } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.title2)
                                     .foregroundColor(.white)
@@ -159,27 +155,15 @@ struct ChatView: View {
             }
             
             HStack(spacing: 8) {
-                // Attachment button
-                Button {
-                    showingAttachmentOptions = true
-                } label: {
+                Button { showingAttachmentOptions = true } label: {
                     Image(systemName: "plus.circle.fill")
                         .font(.title)
                         .foregroundColor(.gray)
                 }
                 .confirmationDialog("Add Attachment", isPresented: $showingAttachmentOptions) {
-                    Button("Photo Library") {
-                        showingPhotoPicker = true
-                    }
-                    Button("Take Photo") {
-                        showingCamera = true
-                    }
+                    Button("Photo Library") { showingPhotoPicker = true }
+                    Button("Take Photo") { showingCamera = true }
                     Button("Cancel", role: .cancel) {}
-                }
-                
-                VoiceButton { transcribedText in
-                    inputText = transcribedText
-                    sendMessage()
                 }
                 
                 HStack {
@@ -189,13 +173,22 @@ struct ChatView: View {
                         .focused($isInputFocused)
                         .onSubmit(sendMessage)
                     
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.title)
-                            .foregroundColor(canSend ? .blue : .gray)
+                    if canSend {
+                        Button(action: sendMessage) {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.title)
+                                .foregroundColor(.blue)
+                        }
+                        .transition(.scale.combined(with: .opacity))
+                    } else {
+                        VoiceButton { transcribedText in
+                            inputText = transcribedText
+                            sendMessage()
+                        }
+                        .transition(.scale.combined(with: .opacity))
                     }
-                    .disabled(!canSend)
                 }
+                .animation(.easeInOut(duration: 0.15), value: canSend)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color(white: 0.15))
@@ -207,9 +200,7 @@ struct ChatView: View {
         .background(Color(white: 0.1))
         .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedPhotoItem, matching: .images)
         .onChange(of: selectedPhotoItem) { _, newItem in
-            Task {
-                await loadSelectedPhoto(newItem)
-            }
+            Task { await loadSelectedPhoto(newItem) }
         }
         .fullScreenCover(isPresented: $showingCamera) {
             CameraView { imageData in
@@ -233,14 +224,11 @@ struct ChatView: View {
     
     private func loadSelectedPhoto(_ item: PhotosPickerItem?) async {
         guard let item = item else { return }
-        
         do {
             if let data = try await item.loadTransferable(type: Data.self) {
                 await MainActor.run {
                     pendingImageData = data
-                    if let image = UIImage(data: data) {
-                        pendingImagePreview = image
-                    }
+                    if let image = UIImage(data: data) { pendingImagePreview = image }
                 }
             }
         } catch {
@@ -262,6 +250,9 @@ struct ChatView: View {
             inputText = ""
             gateway.sendMessage(message)
         }
+        // Double scroll to handle race conditions
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { scrollTrigger.toggle() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { scrollTrigger.toggle() }
     }
     
     private func scrollToBottom(proxy: ScrollViewProxy) {
@@ -277,18 +268,55 @@ struct ChatView: View {
 
 struct MessageBubble: View {
     let message: ChatMessage
+    @State private var showFullscreen = false
     
     var body: some View {
         HStack {
             if message.role == .user { Spacer(minLength: 60) }
             
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
-                Text(message.content)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+                if let image = message.image {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(maxWidth: 200, maxHeight: 200)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .onTapGesture { showFullscreen = true }
+                        
+                        if !message.content.isEmpty {
+                            Text(message.content)
+                                .foregroundColor(.white)
+                                .font(.body)
+                        }
+                    }
+                    .padding(8)
                     .background(bubbleColor)
-                    .foregroundColor(.white)
                     .cornerRadius(18)
+                    .contextMenu {
+                        Button { UIPasteboard.general.string = message.content } label: {
+                            Label("Copy Text", systemImage: "doc.on.doc")
+                        }
+                        Button { UIPasteboard.general.image = image } label: {
+                            Label("Copy Image", systemImage: "photo.on.rectangle")
+                        }
+                    }
+                    .fullScreenCover(isPresented: $showFullscreen) {
+                        FullscreenImageView(image: image, isPresented: $showFullscreen)
+                    }
+                } else {
+                    Text(message.content)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(bubbleColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(18)
+                        .contextMenu {
+                            Button { UIPasteboard.general.string = message.content } label: {
+                                Label("Copy", systemImage: "doc.on.doc")
+                            }
+                        }
+                }
                 
                 Text(message.timestamp, style: .time)
                     .font(.caption2)
@@ -309,6 +337,48 @@ struct MessageBubble: View {
     }
 }
 
+struct FullscreenImageView: View {
+    let image: UIImage
+    @Binding var isPresented: Bool
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .scaleEffect(scale)
+                .gesture(
+                    MagnificationGesture()
+                        .onChanged { value in scale = lastScale * value }
+                        .onEnded { _ in
+                            lastScale = scale
+                            if scale < 1.0 {
+                                withAnimation { scale = 1.0 }
+                                lastScale = 1.0
+                            }
+                        }
+                )
+                .onTapGesture(count: 2) {
+                    withAnimation {
+                        if scale > 1.0 { scale = 1.0; lastScale = 1.0 }
+                        else { scale = 2.0; lastScale = 2.0 }
+                    }
+                }
+            
+            Button { isPresented = false } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 30))
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(20)
+            }
+        }
+    }
+}
+
 struct TypingIndicator: View {
     @State private var animating = false
     
@@ -322,8 +392,8 @@ struct TypingIndicator: View {
                         .offset(y: animating ? -4 : 4)
                         .animation(
                             .easeInOut(duration: 0.4)
-                            .repeatForever()
-                            .delay(Double(i) * 0.15),
+                                .repeatForever()
+                                .delay(Double(i) * 0.15),
                             value: animating
                         )
                 }
