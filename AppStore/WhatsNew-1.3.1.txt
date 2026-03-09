@@ -1,0 +1,14 @@
+Design Refresh
+Updated iPhone and iPad interfaces with a cleaner, more consistent visual style across login, chat, sessions, and settings.
+
+Simplified Navigation
+Removed the separate Voice page on mobile and streamlined core navigation to focus on Sessions, Chat, and Settings.
+
+Unified Settings
+Consolidated status and settings into a single, clearer settings experience on both iPhone and iPad, including model selection, text size controls, and security access.
+
+Chat Improvements
+Image attachments now display properly in iPad chat history with thumbnail previews and fullscreen viewing.
+
+Data Controls
+Added a stronger local cleanup action: "Clear Device Data" now wipes all chats and messages stored on the device.

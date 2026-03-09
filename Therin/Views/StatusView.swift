@@ -6,123 +6,96 @@ struct StatusView: View {
     @Binding var selectedTab: Int
     @AppStorage("gatewayURL") private var gatewayURL = ""
     @AppStorage("gatewayToken") private var gatewayToken = ""
+    @AppStorage("selectedModel") private var selectedModel = ""
+    @AppStorage("chatTextSize") private var chatTextSize: Double = 14
     @State private var usageData: UsageData?
     @State private var isLoading = false
     @State private var lastRefresh: Date?
     @State private var autoRefreshTask: Task<Void, Never>?
     @State private var showLogoutConfirm = false
+    @State private var showWipeConfirm = false
+    @State private var availableModels: [[String: Any]] = []
     
     var body: some View {
         NavigationStack {
             List {
-                // Connection section
                 Section("Connection") {
                     StatusRow(
                         icon: "circle.fill",
-                        iconColor: gateway.isConnected ? .green : .red,
-                        label: "Status",
+                        iconColor: gateway.isConnected ? .onlineGreen : .red,
+                        label: "Settings",
                         value: gateway.isConnected ? "Connected" : "Disconnected"
                     )
-                    
-                    if gateway.serverVersion != "dev" && gateway.serverVersion != "Unknown" {
-                        StatusRow(icon: "tag", label: "Version", value: gateway.serverVersion)
-                    }
+                    StatusRow(icon: "network", label: "Gateway", value: gatewayURL.isEmpty ? "Not set" : gatewayURL)
                     StatusRow(icon: "clock", label: "Uptime", value: formatUptime(gateway.uptimeMs / 1000))
+                    if gateway.serverVersion != "dev" && gateway.serverVersion != "Unknown" {
+                        StatusRow(icon: "tag", label: "Server Version", value: gateway.serverVersion)
+                    }
                 }
-                
-                
-                // Today's usage
+
                 if let usage = usageData {
-                    Section("Today") {
-                        StatusRow(icon: "dollarsign.circle", label: "Cost", value: usage.todayCost)
+                    Section("Usage") {
+                        StatusRow(icon: "dollarsign.circle", label: "Today Cost", value: usage.todayCost)
                         StatusRow(icon: "text.bubble", label: "Words In", value: formatTokensAsWords(usage.todayInput))
                         StatusRow(icon: "text.bubble.fill", label: "Words Out", value: formatTokensAsWords(usage.todayOutput))
-                    }
-
-                    Section("All Time") {
                         StatusRow(icon: "dollarsign.circle.fill", label: "Total Cost", value: usage.totalCost)
                     }
                 }
-                
-                // Security audit link
+
+                Section("Model") {
+                    if availableModels.isEmpty {
+                        Text(isLoading ? "Loading models..." : "No models found")
+                            .foregroundColor(.secondary)
+                    } else {
+                        Picker("Active Model", selection: $selectedModel) {
+                            Text("Default").tag("")
+                            ForEach(availableModels, id: \.description) { model in
+                                if let id = model["id"] as? String {
+                                    Text(id).tag(id)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section("Appearance") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label("Text Size", systemImage: "textformat.size")
+                            Spacer()
+                            Text("\(Int(chatTextSize))pt")
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $chatTextSize, in: 12...20, step: 1)
+                            .tint(.appPrimary)
+                    }
+                }
+
                 Section("Security") {
                     NavigationLink {
                         SecurityView(gateway: gateway, selectedTab: $selectedTab)
                             .environmentObject(gateway)
                             .environmentObject(sessionManager)
                     } label: {
-                        HStack {
-                            Image(systemName: "shield.checkered")
-                                .foregroundColor(.blue)
-                                .frame(width: 24)
-                            Text("Security Audit")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                        Label("Security Audit", systemImage: "shield.checkered")
                     }
                 }
-                
-                // Settings link
-                Section {
-                    NavigationLink {
-                        SettingsView()
-                            .environmentObject(gateway)
-                    } label: {
-                        HStack {
-                            Image(systemName: "gearshape")
-                                .foregroundColor(.secondary)
-                                .frame(width: 24)
-                            Text("Settings")
-                        }
+
+                Section("About") {
+                    StatusRow(icon: "app.badge", label: "App Version", value: appVersion)
+                    StatusRow(icon: "number.square", label: "Build", value: buildNumber)
+                    StatusRow(icon: "rectangle.stack", label: "Active Session", value: gateway.activeSessionKey)
+                    if let refresh = lastRefresh {
+                        StatusRow(icon: "arrow.clockwise", label: "Updated", value: refresh.formatted(.dateTime.hour().minute().second()))
                     }
                 }
-                
-                // Disconnected state
-                if !gateway.isConnected {
-                    Section {
-                        HStack {
-                            Spacer()
-                            VStack(spacing: 8) {
-                                Image(systemName: "wifi.slash")
-                                    .font(.largeTitle)
-                                    .foregroundColor(.secondary)
-                                Text("Connect to gateway to view status")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                        }
-                        .listRowBackground(Color.clear)
+
+                Section("Actions") {
+                    Button("Clear Device Data", role: .destructive) {
+                        showWipeConfirm = true
                     }
-                }
-                
-                // Last refresh
-                if let refresh = lastRefresh {
-                    Section {
-                        HStack {
-                            Spacer()
-                            Text("Updated: \(refresh.formatted(.dateTime.hour().minute().second()))")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                            Spacer()
-                        }
-                        .listRowBackground(Color.clear)
-                    }
-                }
-                
-                // Logout button
-                Section {
-                    Button(role: .destructive) {
+                    Button("Log Out", role: .destructive) {
                         showLogoutConfirm = true
-                    } label: {
-                        HStack {
-                            Spacer()
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                            Text("Log Out")
-                            Spacer()
-                        }
                     }
                 }
             }
@@ -134,7 +107,14 @@ struct StatusView: View {
             } message: {
                 Text("This will disconnect from the gateway and clear your credentials.")
             }
-            .navigationTitle("Status")
+            .confirmationDialog("Clear device data and all chats?", isPresented: $showWipeConfirm) {
+                Button("Clear Device Data", role: .destructive) {
+                    gateway.wipeDeviceDataAndChats()
+                }
+            } message: {
+                Text("This removes all chats and messages stored locally on this device.")
+            }
+            .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .overlay {
                 if isLoading && usageData == nil {
@@ -145,6 +125,11 @@ struct StatusView: View {
                 await refresh()
             }
             .task {
+                if availableModels.isEmpty && gateway.isConnected {
+                    if let models = await gateway.getModels() {
+                        availableModels = models
+                    }
+                }
                 await refresh()
                 startAutoRefresh()
             }
@@ -152,6 +137,14 @@ struct StatusView: View {
                 autoRefreshTask?.cancel()
             }
         }
+    }
+    
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
+    }
+    
+    private var buildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-"
     }
     
     // MARK: - Auto-refresh
@@ -236,12 +229,6 @@ struct StatusView: View {
         }
     }
     
-    private func formatNumber(_ n: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: n)) ?? "\(n)"
-    }
-
     private func formatTokensAsWords(_ tokens: Int) -> String {
         let words = Int(Double(tokens) * 0.75)
         if words >= 1_000_000 {
@@ -285,7 +272,7 @@ struct UsageData {
 }
 
 #Preview {
-    StatusView(selectedTab: .constant(3))
+    StatusView(selectedTab: .constant(2))
         .environmentObject(GatewayClient())
         .environmentObject(SessionManager())
 }

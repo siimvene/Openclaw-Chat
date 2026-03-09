@@ -5,11 +5,13 @@ struct ChatView: View {
     @EnvironmentObject var gateway: GatewayClient
     @EnvironmentObject var sessionManager: SessionManager
     @Binding var selectedTab: Int
+    @AppStorage("chatTextSize") private var chatTextSize: Double = 14
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
     @State private var showSettings = false
     @State private var keyboardHeight: CGFloat = 0
     @State private var scrollTrigger = false
+
     
     // Photo/Camera state
     @State private var showingAttachmentOptions = false
@@ -25,7 +27,10 @@ struct ChatView: View {
             
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: 16) {
+                        // Date divider
+                        DateDivider(text: "Today")
+                        
                         ForEach(gateway.messages) { message in
                             MessageBubble(message: message)
                                 .id(message.id)
@@ -40,28 +45,20 @@ struct ChatView: View {
                     .padding(.vertical, 12)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                
                 .contentShape(Rectangle())
                 .onTapGesture { isInputFocused = false }
                 .onAppear {
-                    // Scroll to bottom when view loads with existing messages
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         scrollToBottom(proxy: proxy)
                     }
                 }
                 .onChange(of: gateway.messages.count) { scrollToBottom(proxy: proxy) }
                 .onChange(of: gateway.messages.last?.content) { _, _ in
-                    // Scroll during streaming as message grows
                     scrollToBottom(proxy: proxy)
                 }
                 .onChange(of: gateway.isTyping) { scrollToBottom(proxy: proxy) }
                 .onChange(of: keyboardHeight) { _, _ in
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { scrollToBottom(proxy: proxy) }
-                }
-                .onChange(of: inputText) { _, newText in
-                    if newText.contains("\n") || newText.count > 60 {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { scrollToBottom(proxy: proxy) }
-                    }
                 }
                 .onChange(of: scrollTrigger) { _, _ in
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { scrollToBottom(proxy: proxy) }
@@ -71,7 +68,7 @@ struct ChatView: View {
             inputArea
             Color.clear.frame(height: keyboardHeight)
         }
-        .background(Color.black)
+        .background(Color.appBackground)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
             if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
@@ -84,31 +81,39 @@ struct ChatView: View {
         }
     }
     
+    // MARK: - Header (Glass Panel)
     private var header: some View {
         HStack {
             Button {
                 selectedTab = 0
             } label: {
-                HStack(spacing: 10) {
-                    Image("Logo")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 40, height: 40)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                HStack(spacing: 12) {
+                    // Avatar with online indicator
+                    ZStack(alignment: .bottomTrailing) {
+                        Image("Logo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 40, height: 40)
+                            .background(Color.appPrimary.opacity(0.2))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color.appPrimary.opacity(0.3), lineWidth: 1))
+                        
+                        // Online dot
+                        Circle()
+                            .fill(gateway.isConnected ? Color.onlineGreen : Color.gray)
+                            .frame(width: 12, height: 12)
+                            .overlay(Circle().stroke(Color.appBackground, lineWidth: 2))
+                            .offset(x: 2, y: 2)
+                    }
                     
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(sessionManager.activeSession?.name ?? "OpenClaw")
-                            .font(.headline)
+                        Text(sessionManager.activeSession?.name ?? "General Chat")
+                            .font(.system(size: 14, weight: .bold))
                             .foregroundColor(.white)
                             .lineLimit(1)
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(gateway.isConnected ? Color.green : Color.gray)
-                                .frame(width: 8, height: 8)
-                            Text(gateway.isConnected ? "Online" : "Offline")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                        Text(gateway.isConnected ? "Online • OpenClaw AI" : "Offline")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(Color.textMuted)
                     }
                 }
             }
@@ -116,20 +121,38 @@ struct ChatView: View {
             
             Spacer()
             
-            if !gateway.messages.isEmpty {
-                Button { gateway.clearMessages() } label: {
-                    Image(systemName: "trash")
-                        .font(.body)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.trailing, 4)
+            // Search button
+            Button { } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 20))
+                    .foregroundColor(Color.textMuted)
+                    .frame(width: 40, height: 40)
+                    .background(Color.white.opacity(0.05))
+                    .clipShape(Circle())
+            }
+            
+            // More button
+            Button { gateway.clearMessages() } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 20))
+                    .foregroundColor(Color.textMuted)
+                    .frame(width: 40, height: 40)
+                    .background(Color.white.opacity(0.05))
+                    .clipShape(Circle())
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color(white: 0.1))
+        .padding(.top, 48)
+        .padding(.bottom, 16)
+        .background(
+            Rectangle()
+                .fill(.regularMaterial.opacity(0.5))
+                .background(Color.glassFill)
+                .overlay(Rectangle().frame(height: 1).foregroundColor(Color.glassBorder), alignment: .bottom)
+        )
     }
     
+    // MARK: - Input Area (Glass Panel)
     private var inputArea: some View {
         VStack(spacing: 8) {
             if let preview = pendingImagePreview {
@@ -154,33 +177,25 @@ struct ChatView: View {
                 .padding(.horizontal, 16)
             }
             
-            HStack(spacing: 8) {
+            HStack(spacing: 12) {
+                // Attachment button (plus)
                 Button { showingAttachmentOptions = true } label: {
                     Image(systemName: "plus.circle.fill")
-                        .font(.title)
-                        .foregroundColor(.gray)
-                }
-                .confirmationDialog("Add Attachment", isPresented: $showingAttachmentOptions) {
-                    Button("Photo Library") { showingPhotoPicker = true }
-                    Button("Take Photo") { showingCamera = true }
-                    Button("Cancel", role: .cancel) {}
+                        .font(.system(size: 28))
+                        .foregroundColor(Color.textMuted)
                 }
                 
-                HStack {
-                    TextField("Message", text: $inputText, axis: .vertical)
+                // Input field with mic inside
+                HStack(spacing: 8) {
+                    TextField("Type a message...", text: $inputText, axis: .vertical)
                         .textFieldStyle(.plain)
+                        .font(.system(size: chatTextSize))
                         .lineLimit(1...5)
                         .focused($isInputFocused)
-                        .onSubmit(sendMessage)
+                        .foregroundColor(.white)
                     
-                    if canSend {
-                        Button(action: sendMessage) {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.title)
-                                .foregroundColor(.blue)
-                        }
-                        .transition(.scale.combined(with: .opacity))
-                    } else {
+                    // Mic button (when not sending)
+                    if !canSend {
                         VoiceButton { transcribedText in
                             inputText = transcribedText
                             sendMessage()
@@ -189,15 +204,47 @@ struct ChatView: View {
                     }
                 }
                 .animation(.easeInOut(duration: 0.15), value: canSend)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(white: 0.15))
-                .cornerRadius(20)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(isInputFocused ? Color.white.opacity(0.1) : Color.white.opacity(0.05))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24)
+                                .stroke(isInputFocused ? Color.appPrimary.opacity(0.5) : Color.glassBorder, lineWidth: 1)
+                        )
+                )
+                .animation(.easeInOut(duration: 0.2), value: isInputFocused)
+                
+                // Send button (separate, matching mockup)
+                if canSend {
+                    Button(action: sendMessage) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(Color.appPrimary)
+                            .clipShape(Circle())
+                            .shadow(color: Color.appPrimary.opacity(0.3), radius: 8, x: 0, y: 4)
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
             }
+            .animation(.easeInOut(duration: 0.15), value: canSend)
             .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.vertical, 12)
         }
-        .background(Color(white: 0.1))
+        .background(
+            Rectangle()
+                .fill(.regularMaterial.opacity(0.5))
+                .background(Color.glassFill)
+                .overlay(Rectangle().frame(height: 1).foregroundColor(Color.glassBorder), alignment: .top)
+        )
+        .confirmationDialog("Add Attachment", isPresented: $showingAttachmentOptions) {
+            Button("Photo Library") { showingPhotoPicker = true }
+            Button("Take Photo") { showingCamera = true }
+            Button("Cancel", role: .cancel) {}
+        }
         .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedPhotoItem, matching: .images)
         .onChange(of: selectedPhotoItem) { _, newItem in
             Task { await loadSelectedPhoto(newItem) }
@@ -211,7 +258,7 @@ struct ChatView: View {
             }
         }
     }
-    
+
     private var canSend: Bool {
         !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingImageData != nil
     }
@@ -250,7 +297,6 @@ struct ChatView: View {
             inputText = ""
             gateway.sendMessage(message)
         }
-        // Double scroll to handle race conditions
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { scrollTrigger.toggle() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { scrollTrigger.toggle() }
     }
@@ -266,74 +312,189 @@ struct ChatView: View {
     }
 }
 
-struct MessageBubble: View {
-    let message: ChatMessage
-    @State private var showFullscreen = false
+// MARK: - Date Divider
+struct DateDivider: View {
+    let text: String
     
     var body: some View {
         HStack {
-            if message.role == .user { Spacer(minLength: 60) }
+            Spacer()
+            Text(text.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(Color.textMuted)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(Color.white.opacity(0.08))
+                )
+            Spacer()
+        }
+    }
+}
+
+// MARK: - Message Bubble with Avatar
+struct MessageBubble: View {
+    let message: ChatMessage
+    @AppStorage("chatTextSize") private var chatTextSize: Double = 14
+    @State private var showFullscreen = false
+    
+    private var isUser: Bool { message.role == .user }
+    
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            if isUser { Spacer(minLength: 40) }
             
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
-                if let image = message.image {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Image(uiImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(maxWidth: 200, maxHeight: 200)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                            .onTapGesture { showFullscreen = true }
-                        
-                        if !message.content.isEmpty {
-                            Text(message.content)
-                                .foregroundColor(.white)
-                                .font(.body)
-                        }
-                    }
-                    .padding(8)
-                    .background(bubbleColor)
-                    .cornerRadius(18)
-                    .contextMenu {
-                        Button { UIPasteboard.general.string = message.content } label: {
-                            Label("Copy Text", systemImage: "doc.on.doc")
-                        }
-                        Button { UIPasteboard.general.image = image } label: {
-                            Label("Copy Image", systemImage: "photo.on.rectangle")
-                        }
-                    }
-                    .fullScreenCover(isPresented: $showFullscreen) {
-                        FullscreenImageView(image: image, isPresented: $showFullscreen)
-                    }
-                } else {
-                    Text(message.content)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(bubbleColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(18)
-                        .contextMenu {
-                            Button { UIPasteboard.general.string = message.content } label: {
-                                Label("Copy", systemImage: "doc.on.doc")
-                            }
-                        }
-                }
+            // AI Avatar (left side)
+            if !isUser {
+                avatarView
+            }
+            
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
+                bubbleContent
                 
                 Text(message.timestamp, style: .time)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundColor(Color.textMuted)
                     .padding(.horizontal, 4)
             }
             
-            if message.role == .assistant || message.role == .system { Spacer(minLength: 60) }
+            // User Avatar (right side)
+            if isUser {
+                userAvatarView
+            }
+            
+            if !isUser { Spacer(minLength: 40) }
         }
     }
     
-    private var bubbleColor: Color {
-        switch message.role {
-        case .user: return .blue
-        case .assistant: return Color(white: 0.2)
-        case .system: return .orange.opacity(0.3)
+    private var avatarView: some View {
+        Image("Logo")
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 32, height: 32)
+            .background(Color.appPrimary.opacity(0.1))
+            .clipShape(Circle())
+            .overlay(Circle().stroke(Color.appPrimary.opacity(0.2), lineWidth: 1))
+    }
+    
+    private var userAvatarView: some View {
+        Circle()
+            .fill(Color.white.opacity(0.1))
+            .frame(width: 32, height: 32)
+            .overlay(
+                Image(systemName: "person.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(Color.textMuted)
+            )
+            .overlay(Circle().stroke(Color.glassBorder, lineWidth: 1))
+    }
+    
+    @ViewBuilder
+    private var bubbleContent: some View {
+        if let image = message.image {
+            VStack(alignment: .leading, spacing: 6) {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(maxWidth: 200, maxHeight: 200)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .onTapGesture { showFullscreen = true }
+                
+                if !message.content.isEmpty {
+                    Text(message.content)
+                        .foregroundColor(.white)
+                        .font(.system(size: chatTextSize))
+                }
+            }
+            .padding(10)
+            .background(bubbleBackground)
+            .clipShape(bubbleShape)
+            .messageShadow()
+            .contextMenu {
+                Button { UIPasteboard.general.string = message.content } label: {
+                    Label("Copy Text", systemImage: "doc.on.doc")
+                }
+                Button { UIPasteboard.general.image = image } label: {
+                    Label("Copy Image", systemImage: "photo.on.rectangle")
+                }
+            }
+            .fullScreenCover(isPresented: $showFullscreen) {
+                FullscreenImageView(image: image, isPresented: $showFullscreen)
+            }
+        } else {
+            Text(message.content)
+                .font(.system(size: chatTextSize))
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(bubbleBackground)
+                .clipShape(bubbleShape)
+                .messageShadow()
+                .contextMenu {
+                    Button { UIPasteboard.general.string = message.content } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                }
         }
+    }
+    
+    @ViewBuilder
+    private var bubbleBackground: some View {
+        if isUser {
+            Color.appPrimary
+        } else {
+            // Glass panel for AI messages
+            ZStack {
+                Color.white.opacity(0.03)
+                Rectangle().fill(.ultraThinMaterial.opacity(0.2))
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.glassBorder, lineWidth: 1)
+            )
+        }
+    }
+    
+    private var bubbleShape: some Shape {
+        BubbleShape(isUser: isUser)
+    }
+}
+
+// Custom bubble shape with one flat corner
+struct BubbleShape: Shape {
+    let isUser: Bool
+    
+    func path(in rect: CGRect) -> Path {
+        let radius: CGFloat = 18
+        let smallRadius: CGFloat = 4
+        var path = Path()
+        
+        if isUser {
+            // User: flat bottom-right corner
+            path.move(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
+            path.addArc(center: CGPoint(x: rect.maxX - radius, y: rect.minY + radius), radius: radius, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - smallRadius))
+            path.addArc(center: CGPoint(x: rect.maxX - smallRadius, y: rect.maxY - smallRadius), radius: smallRadius, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+            path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+            path.addArc(center: CGPoint(x: rect.minX + radius, y: rect.maxY - radius), radius: radius, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+            path.addArc(center: CGPoint(x: rect.minX + radius, y: rect.minY + radius), radius: radius, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        } else {
+            // AI: flat bottom-left corner
+            path.move(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
+            path.addArc(center: CGPoint(x: rect.maxX - radius, y: rect.minY + radius), radius: radius, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+            path.addArc(center: CGPoint(x: rect.maxX - radius, y: rect.maxY - radius), radius: radius, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+            path.addLine(to: CGPoint(x: rect.minX + smallRadius, y: rect.maxY))
+            path.addArc(center: CGPoint(x: rect.minX + smallRadius, y: rect.maxY - smallRadius), radius: smallRadius, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+            path.addArc(center: CGPoint(x: rect.minX + radius, y: rect.minY + radius), radius: radius, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        }
+        
+        return path
     }
 }
 
@@ -379,15 +540,24 @@ struct FullscreenImageView: View {
     }
 }
 
+
 struct TypingIndicator: View {
     @State private var animating = false
     
     var body: some View {
-        HStack {
+        HStack(alignment: .bottom, spacing: 8) {
+            // Avatar
+            Image("Logo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 32, height: 32)
+                .background(Color.appPrimary.opacity(0.1))
+                .clipShape(Circle())
+            
             HStack(spacing: 4) {
                 ForEach(0..<3) { i in
                     Circle()
-                        .fill(Color.gray)
+                        .fill(Color.textMuted)
                         .frame(width: 8, height: 8)
                         .offset(y: animating ? -4 : 4)
                         .animation(
@@ -398,10 +568,19 @@ struct TypingIndicator: View {
                         )
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Color(white: 0.2))
-            .cornerRadius(18)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(
+                ZStack {
+                    Color.white.opacity(0.03)
+                    Rectangle().fill(.ultraThinMaterial.opacity(0.2))
+                }
+            )
+            .clipShape(BubbleShape(isUser: false))
+            .overlay(
+                BubbleShape(isUser: false)
+                    .stroke(Color.glassBorder, lineWidth: 1)
+            )
             
             Spacer()
         }

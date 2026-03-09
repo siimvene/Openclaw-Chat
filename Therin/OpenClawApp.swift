@@ -18,6 +18,8 @@ struct OpenClawApp: App {
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
+                        // Check WebSocket health on foreground return
+                        gateway.checkConnectionHealth()
                         processPendingShares()
                     }
                 }

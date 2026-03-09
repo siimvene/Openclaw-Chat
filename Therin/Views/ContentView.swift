@@ -36,11 +36,27 @@ struct ContentView: View {
 
 struct MainTabView: View {
     @EnvironmentObject var sessionManager: SessionManager
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedTab = 1 // Default to Chat
     @State private var dragOffset: CGFloat = 0
     @State private var isEdgeSwipe = false
     
+    private var isIPad: Bool {
+        horizontalSizeClass == .regular
+    }
+    
     var body: some View {
+        Group {
+            if isIPad {
+                iPadChatLayout()
+            } else {
+                iPhoneTabView
+            }
+        }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+    }
+    
+    private var iPhoneTabView: some View {
         VStack(spacing: 0) {
             // Content area with swipe
             GeometryReader { geometry in
@@ -51,9 +67,6 @@ struct MainTabView: View {
                         .frame(width: geometry.size.width)
                     
                     ChatView(selectedTab: $selectedTab)
-                        .frame(width: geometry.size.width)
-                    
-                    VoiceView()
                         .frame(width: geometry.size.width)
                     
                     StatusView(selectedTab: $selectedTab)
@@ -100,7 +113,7 @@ struct MainTabView: View {
                             
                             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                                 if isHorizontalSwipe {
-                                    if shouldSwipeLeft && selectedTab < 3 {
+                                    if shouldSwipeLeft && selectedTab < 2 {
                                         selectedTab += 1
                                     } else if shouldSwipeRight && selectedTab > 0 {
                                         selectedTab -= 1
@@ -116,22 +129,21 @@ struct MainTabView: View {
             
             // Tab bar
             HStack(spacing: 0) {
-                ForEach(0..<4) { index in
+                ForEach(0..<3) { index in
                     TabButton(
                         index: index,
                         selectedTab: $selectedTab,
-                        icon: ["list.bullet", "bubble.left.fill", "waveform", "chart.bar.fill"][index],
-                        title: ["Sessions", "Chat", "Voice", "Status"][index],
+                        icon: ["list.bullet", "bubble.left.fill", "gearshape.fill"][index],
+                        title: ["Sessions", "Chat", "Settings"][index],
                         badge: index == 0 ? sessionManager.totalUnread : 0
                     )
                 }
             }
-            .frame(maxWidth: 500)  // Limit tab bar width on iPad
-            .frame(maxWidth: .infinity)  // Center it
+            .frame(maxWidth: 500)
+            .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
-            .background(Color(white: 0.1))
+            .background(Color.glassFill)
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 }
 
@@ -167,7 +179,7 @@ struct TabButton: View {
                 Text(title)
                     .font(.system(size: 10))
             }
-            .foregroundColor(selectedTab == index ? .blue : .gray)
+            .foregroundColor(selectedTab == index ? .appPrimary : .gray)
             .frame(maxWidth: .infinity)
         }
     }
@@ -206,15 +218,18 @@ struct ConnectingView: View {
                     .buttonStyle(.bordered)
                     
                     Button("Change Settings") {
+                        gateway.disconnect()
                         UserDefaults.standard.removeObject(forKey: "gatewayURL")
                         UserDefaults.standard.removeObject(forKey: "gatewayToken")
+                        _ = KeychainService.delete(.gatewayURL)
+                        _ = KeychainService.delete(.gatewayToken)
                     }
                     .foregroundColor(.secondary)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black)
+        .background(Color.appBackground)
     }
 }
 
@@ -261,7 +276,7 @@ struct PairingView: View {
                     Text("openclaw nodes pending")
                         .font(.system(.caption, design: .monospaced))
                         .padding(8)
-                        .background(Color(white: 0.15))
+                        .background(Color.glassFill)
                         .cornerRadius(6)
                     
                     Spacer()
@@ -275,14 +290,14 @@ struct PairingView: View {
                     Text("openclaw nodes approve <id>")
                         .font(.system(.caption, design: .monospaced))
                         .padding(8)
-                        .background(Color(white: 0.15))
+                        .background(Color.glassFill)
                         .cornerRadius(6)
                     
                     Spacer()
                 }
             }
             .padding()
-            .background(Color(white: 0.1))
+            .background(Color.glassFill)
             .cornerRadius(12)
             .padding(.horizontal, 32)
             

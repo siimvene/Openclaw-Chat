@@ -28,7 +28,7 @@ struct SettingsView: View {
         List {
             Section("Connection") {
                 LabeledContent("Gateway", value: gatewayURL)
-                LabeledContent("Status", value: gateway.isConnected ? "Connected" : "Disconnected")
+                LabeledContent("Settings", value: gateway.isConnected ? "Connected" : "Disconnected")
                 LabeledContent("Session", value: gateway.activeSessionKey)
             }
             
@@ -86,7 +86,7 @@ struct SettingsView: View {
             }
             
             Section {
-                Button("Clear Chat History", role: .destructive) {
+                Button("Clear Device Data", role: .destructive) {
                     showClearConfirm = true
                 }
                 
@@ -102,10 +102,12 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("Clear all messages in current session?", isPresented: $showClearConfirm) {
-            Button("Clear", role: .destructive) {
-                gateway.clearMessages()
+        .confirmationDialog("Clear device data and all chats?", isPresented: $showClearConfirm) {
+            Button("Clear Device Data", role: .destructive) {
+                gateway.wipeDeviceDataAndChats()
             }
+        } message: {
+            Text("This removes all chats and messages stored locally on this device.")
         }
         .confirmationDialog("Disconnect and reset settings?", isPresented: $showDisconnectConfirm) {
             Button("Reset", role: .destructive) {
@@ -113,6 +115,9 @@ struct SettingsView: View {
                 gatewayURL = ""
                 gatewayToken = ""
                 selectedModel = ""
+                _ = KeychainService.delete(.gatewayURL)
+                _ = KeychainService.delete(.gatewayToken)
+                AppGroupStorage.shared.gatewayURL = nil
                 dismiss()
             }
         }

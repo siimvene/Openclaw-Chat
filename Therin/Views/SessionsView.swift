@@ -13,17 +13,25 @@ struct SessionsView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Search bar
-                HStack {
+                HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Color.textMuted)
+                        .font(.system(size: 14))
                     TextField("Search sessions...", text: $sessionManager.searchText)
                         .textFieldStyle(.plain)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
                 }
-                .padding(10)
-                .background(Color(white: 0.15))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.white.opacity(0.05))
                 .cornerRadius(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.glassBorder, lineWidth: 1)
+                )
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.vertical, 12)
                 
                 if sessionManager.filteredSessions.isEmpty {
                     emptyState
@@ -31,7 +39,7 @@ struct SessionsView: View {
                     sessionList
                 }
             }
-            .background(Color.black)
+            .background(Color.appBackground)
             .navigationTitle("Sessions")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -39,6 +47,7 @@ struct SessionsView: View {
                     Button(action: { showNewSessionAlert = true }) {
                         Image(systemName: "plus.circle.fill")
                             .font(.title2)
+                            .foregroundColor(Color.appPrimary)
                     }
                 }
             }
@@ -131,12 +140,12 @@ struct SessionsView: View {
                     } label: {
                         Label("Rename", systemImage: "pencil")
                     }
-                    .tint(.blue)
+                    .tint(.appPrimary)
                 }
                 .listRowBackground(
                     session.id == sessionManager.activeSessionId
-                        ? Color.blue.opacity(0.15)
-                        : Color(white: 0.1)
+                        ? Color.appPrimary.opacity(0.15)
+                        : Color.glassFill
                 )
             }
         }
@@ -152,60 +161,74 @@ struct SessionRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            // Star indicator
-            if session.isStarred {
-                Image(systemName: "star.fill")
-                    .font(.caption)
-                    .foregroundColor(.yellow)
+            // Session icon with badge
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(iconColor.opacity(0.2))
+                    .frame(width: 40, height: 40)
+                
+                Image(systemName: iconName)
+                    .font(.system(size: 16))
+                    .foregroundColor(iconColor)
             }
             
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(session.name)
-                        .font(.headline)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.white)
                         .lineLimit(1)
                     
                     if isActive {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundColor(.green)
+                        Circle()
+                            .fill(Color.onlineGreen)
+                            .frame(width: 8, height: 8)
                     }
                     
                     Spacer()
                     
                     Text(relativeDate(session.lastMessageDate))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(Color.textMuted)
                 }
                 
                 if !session.lastMessage.isEmpty {
                     Text(session.lastMessage)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
+                        .font(.system(size: 13))
+                        .foregroundColor(Color.textMuted)
+                        .lineLimit(1)
                 }
                 
                 HStack {
                     Text("\(session.messageCount) messages")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(Color.textMuted)
                     
                     Spacer()
                     
                     if session.unreadCount > 0 {
                         Text("\(session.unreadCount)")
-                            .font(.caption2)
-                            .fontWeight(.bold)
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.blue)
+                            .padding(.vertical, 3)
+                            .background(Color.appPrimary)
                             .clipShape(Capsule())
                     }
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
+    }
+    
+    private var iconName: String {
+        if session.isStarred { return "star.fill" }
+        return "bubble.left"
+    }
+    
+    private var iconColor: Color {
+        if session.isStarred { return .yellow }
+        return Color.appPrimary
     }
     
     private func relativeDate(_ date: Date) -> String {

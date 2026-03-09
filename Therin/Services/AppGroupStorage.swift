@@ -19,20 +19,14 @@ class AppGroupStorage {
         set { sharedDefaults?.set(newValue, forKey: "gatewayURL") }
     }
     
-    var gatewayToken: String? {
-        get { sharedDefaults?.string(forKey: "gatewayToken") }
-        set { sharedDefaults?.set(newValue, forKey: "gatewayToken") }
-    }
-    
-    /// Sync credentials from standard UserDefaults to App Group
+    /// Sync non-sensitive credentials from standard UserDefaults to App Group.
+    /// The access token stays in Keychain and is not mirrored into shared defaults.
     func syncCredentials() {
         let standardDefaults = UserDefaults.standard
         if let url = standardDefaults.string(forKey: "gatewayURL") {
             gatewayURL = url
         }
-        if let token = standardDefaults.string(forKey: "gatewayToken") {
-            gatewayToken = token
-        }
+        sharedDefaults?.removeObject(forKey: "gatewayToken")
     }
     
     // MARK: - Pending Shares

@@ -27,7 +27,7 @@ struct SecurityView: View {
                     severityRow("Critical", count: report.criticalCount, color: .red)
                     severityRow("High", count: report.highCount, color: .orange)
                     severityRow("Medium", count: report.mediumCount, color: .yellow)
-                    severityRow("Low", count: report.lowCount, color: .blue)
+                    severityRow("Low", count: report.lowCount, color: .appPrimary)
                     severityRow("Info", count: report.infoCount, color: .secondary)
                 }
                 
@@ -68,12 +68,12 @@ struct SecurityView: View {
                         VStack(spacing: 16) {
                             ZStack {
                                 Circle()
-                                    .fill(Color.blue.opacity(0.15))
+                                    .fill(Color.appPrimary.opacity(0.15))
                                     .frame(width: 100, height: 100)
                                 
                                 Image(systemName: "shield.lefthalf.filled")
                                     .font(.system(size: 48))
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.appPrimary)
                             }
                             
                             Text("Run Security Audit")
@@ -94,10 +94,10 @@ struct SecurityView: View {
                                     .font(.caption)
                                     .fontWeight(.medium)
                             }
-                            .foregroundColor(.blue)
+                            .foregroundColor(.appPrimary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(Color.blue.opacity(0.1))
+                            .background(Color.appPrimary.opacity(0.1))
                             .cornerRadius(12)
                         }
                         .frame(maxWidth: .infinity)
@@ -114,7 +114,7 @@ struct SecurityView: View {
                 Section {
                     VStack(spacing: 12) {
                         ProgressView(value: auditor.scanProgress)
-                            .tint(.blue)
+                            .tint(.appPrimary)
                         Text("Scanning... \(Int(auditor.scanProgress * 100))%")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -195,7 +195,7 @@ struct SecurityView: View {
     }
     
     private func scoreColor(_ score: Int) -> Color {
-        if score >= 80 { return .green }
+        if score >= 80 { return .onlineGreen }
         if score >= 60 { return .yellow }
         if score >= 40 { return .orange }
         return .red
@@ -297,7 +297,7 @@ struct FindingRow: View {
                             HStack(alignment: .top, spacing: 6) {
                                 Image(systemName: "bubble.left.and.bubble.right.fill")
                                     .font(.caption)
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.appPrimary)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(finding.recommendation)
                                         .font(.caption)
@@ -305,14 +305,14 @@ struct FindingRow: View {
                                         .multilineTextAlignment(.leading)
                                     Text("Tap to discuss with AI")
                                         .font(.caption2)
-                                        .foregroundColor(.blue)
+                                        .foregroundColor(.appPrimary)
                                 }
                                 Spacer()
                                 Image(systemName: "arrow.right.circle.fill")
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.appPrimary)
                             }
                             .padding(10)
-                            .background(Color.blue.opacity(0.1))
+                            .background(Color.appPrimary.opacity(0.1))
                             .cornerRadius(8)
                         }
                         .buttonStyle(.plain)
@@ -321,13 +321,13 @@ struct FindingRow: View {
                         HStack(alignment: .top, spacing: 6) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption)
-                                .foregroundColor(.green)
+                                .foregroundColor(.onlineGreen)
                             Text(finding.recommendation)
                                 .font(.caption)
-                                .foregroundColor(.green.opacity(0.9))
+                                .foregroundColor(.onlineGreen.opacity(0.9))
                         }
                         .padding(10)
-                        .background(Color.green.opacity(0.1))
+                        .background(Color.onlineGreen.opacity(0.1))
                         .cornerRadius(8)
                     }
                 }
@@ -353,13 +353,13 @@ struct FindingRow: View {
     private func badgeColor(_ finding: AuditFinding) -> Color {
         // If no action required, show green
         if !finding.actionRequired {
-            return .green
+            return .onlineGreen
         }
         switch finding.severity {
         case .critical: return .red
         case .high: return .orange
         case .medium: return .yellow
-        case .low: return .blue
+        case .low: return .appPrimary
         case .info: return .secondary
         }
     }

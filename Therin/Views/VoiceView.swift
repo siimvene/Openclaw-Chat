@@ -18,7 +18,7 @@ struct VoiceView: View {
                 
                 inputArea
             }
-            .background(Color.black)
+            .background(Color.appBackground)
             .navigationTitle("Voice")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -174,7 +174,7 @@ struct VoiceView: View {
         Button { handleRecordButton() } label: {
             ZStack {
                 Circle()
-                    .fill(voice.isRecording ? Color.red : Color.blue)
+                    .fill(voice.isRecording ? Color.red : Color.appPrimary)
                     .frame(width: 72, height: 72)
                 
                 if voice.isRecording {
@@ -320,7 +320,7 @@ struct VoiceExchangeView: View {
                 Spacer()
                 Text(exchange.userMessage)
                     .padding(12)
-                    .background(Color.blue.opacity(0.3))
+                    .background(Color.appPrimary.opacity(0.3))
                     .cornerRadius(16)
                     .foregroundColor(.white)
             }
@@ -386,7 +386,7 @@ struct VoiceOrbMini: View {
     private var orbColor: Color {
         if isSpeaking { return .purple }
         if isRecording { return .red }
-        return .blue
+        return .appPrimary
     }
 }
 
@@ -486,7 +486,7 @@ struct VoiceOrb: View {
     private var orbColor: Color {
         if isSpeaking { return .purple }
         if isRecording { return .red }
-        return .blue
+        return .appPrimary
     }
     
     private func startWaveAnimation() {
@@ -550,7 +550,7 @@ struct VoiceButton: View {
                 
                 Image(systemName: voice.isRecording ? "mic.fill" : "mic")
                     .font(.title2)
-                    .foregroundColor(voice.isRecording ? .red : .blue)
+                    .foregroundColor(voice.isRecording ? .red : .appPrimary)
                     .frame(width: 44, height: 44)
             }
         }

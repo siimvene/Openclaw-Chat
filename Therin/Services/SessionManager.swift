@@ -119,6 +119,22 @@ class SessionManager: ObservableObject {
         }
     }
     
+    /// Wipe all locally stored chat/session data from this device.
+    func wipeAllLocalChatData() {
+        // Remove per-session message blobs.
+        for session in sessions {
+            UserDefaults.standard.removeObject(forKey: messagesKeyPrefix + session.id)
+        }
+        
+        // Remove session index and legacy chat payload.
+        UserDefaults.standard.removeObject(forKey: storageKey)
+        UserDefaults.standard.removeObject(forKey: "chatMessages")
+        
+        sessions.removeAll()
+        activeSessionId = nil
+        searchText = ""
+    }
+    
     // MARK: - Persistence
     
     private func saveSessions() {
