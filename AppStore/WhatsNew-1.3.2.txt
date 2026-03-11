@@ -1,0 +1,11 @@
+Share Extension
+Share content to ClawChat from any app. Found something interesting in Safari or Photos? Tap Share → ClawChat and it goes straight to your conversation.
+
+Connection Stability
+Improved WebSocket reconnection logic with generation-based tracking to prevent stale callbacks and race conditions during reconnect.
+
+Streamlined Settings
+Simplified the settings view by removing unused usage metrics and displaying the active model as read-only information.
+
+Security
+Gateway credentials now use a shared Keychain access group, enabling secure credential sharing between the main app and extensions.

@@ -1,7 +1,6 @@
 import UIKit
-import Social
 import UniformTypeIdentifiers
-import CryptoKit
+import Security
 
 class ShareViewController: UIViewController {
     
@@ -12,12 +11,16 @@ class ShareViewController: UIViewController {
     private let cancelButton = UIButton(type: .system)
     
     private let appGroupId = "group.io.kleidia.clawchat"
+    private let keychainService = "ai.openclaw.therin"
+    private let keychainAccessGroup = "D7HDY2ST3C.io.kleidia.clawchat.shared"
     
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
         processSharedContent()
     }
+    
+    // MARK: - UI
     
     private func setupUI() {
         view.backgroundColor = UIColor.black.withAlphaComponent(0.85)
@@ -27,7 +30,7 @@ class ShareViewController: UIViewController {
         containerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(containerView)
         
-        titleLabel.text = "Sending to OpenClaw"
+        titleLabel.text = "Sharing to ClawChat"
         titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
         titleLabel.textColor = .white
         titleLabel.textAlignment = .center
@@ -76,8 +79,10 @@ class ShareViewController: UIViewController {
     }
     
     @objc private func cancelTapped() {
-        extensionContext?.cancelRequest(withError: NSError(domain: "ShareExtension", code: 0, userInfo: nil))
+        extensionContext?.cancelRequest(withError: NSError(domain: "ShareExtension", code: 0))
     }
+    
+    // MARK: - Processing
     
     private func processSharedContent() {
         guard let extensionItem = extensionContext?.inputItems.first as? NSExtensionItem,
@@ -86,16 +91,11 @@ class ShareViewController: UIViewController {
             return
         }
         
-        // Check if gateway is configured
-        guard let defaults = UserDefaults(suiteName: appGroupId),
-              let gatewayURL = defaults.string(forKey: "gatewayURL"),
-              let gatewayToken = defaults.string(forKey: "gatewayToken"),
-              !gatewayURL.isEmpty, !gatewayToken.isEmpty else {
-            showError("Please configure gateway in ClawChat app first")
+        guard isGatewayConfigured() else {
+            showError("Open ClawChat and connect to a gateway first")
             return
         }
         
-        // Process attachments
         Task {
             do {
                 var message = ""
@@ -103,7 +103,7 @@ class ShareViewController: UIViewController {
                 
                 for attachment in attachments {
                     if attachment.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-                        statusLabel.text = "Processing image..."
+                        await MainActor.run { statusLabel.text = "Processing image..." }
                         imageData = try await loadImage(from: attachment)
                     } else if attachment.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                         let url = try await loadURL(from: attachment)
@@ -117,34 +117,86 @@ class ShareViewController: UIViewController {
                 message = message.trimmingCharacters(in: .whitespacesAndNewlines)
                 
                 if message.isEmpty && imageData == nil {
-                    showError("No supported content found")
+                    await MainActor.run { showError("No supported content found") }
                     return
                 }
                 
-                await MainActor.run {
-                    statusLabel.text = "Sending to gateway..."
-                }
+                await MainActor.run { statusLabel.text = "Queuing for ClawChat..." }
                 
-                try await sendToGateway(
-                    url: gatewayURL,
-                    token: gatewayToken,
+                queuePendingShare(
                     message: message.isEmpty ? "Shared image" : message,
                     imageData: imageData
                 )
                 
-                await MainActor.run {
-                    showSuccess()
-                }
+                await MainActor.run { showSuccess() }
             } catch {
-                await MainActor.run {
-                    showError(error.localizedDescription)
-                }
+                await MainActor.run { showError(error.localizedDescription) }
             }
         }
     }
     
+    // MARK: - Credential Check
+    
+    private func isGatewayConfigured() -> Bool {
+        guard let defaults = UserDefaults(suiteName: appGroupId),
+              let url = defaults.string(forKey: "gatewayURL"),
+              !url.isEmpty else { return false }
+        
+        if let token = getKeychainValue(for: "gateway_token"), !token.isEmpty {
+            return true
+        }
+        return false
+    }
+    
+    private func getKeychainValue(for account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account,
+            kSecAttrAccessGroup as String: keychainAccessGroup,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data,
+              let string = String(data: data, encoding: .utf8) else { return nil }
+        return string
+    }
+    
+    // MARK: - Pending Share Queue
+    
+    private func queuePendingShare(message: String, imageData: Data?) {
+        guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
+        
+        var pendingShares = defaults.array(forKey: "pendingShares") as? [[String: Any]] ?? []
+        
+        var shareItem: [String: Any] = [
+            "message": message,
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        
+        if let imageData = imageData {
+            let fileManager = FileManager.default
+            if let containerURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupId) {
+                let imagesDir = containerURL.appendingPathComponent("SharedImages", isDirectory: true)
+                try? fileManager.createDirectory(at: imagesDir, withIntermediateDirectories: true)
+                
+                let imageId = UUID().uuidString
+                let imageURL = imagesDir.appendingPathComponent("\(imageId).jpg")
+                try? imageData.write(to: imageURL)
+                shareItem["imagePath"] = imageURL.path
+            }
+        }
+        
+        pendingShares.append(shareItem)
+        defaults.set(pendingShares, forKey: "pendingShares")
+    }
+    
+    // MARK: - Attachment Loaders
+    
     private func loadImage(from attachment: NSItemProvider) async throws -> Data {
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { item, error in
                 if let error = error {
                     continuation.resume(throwing: error)
@@ -152,7 +204,6 @@ class ShareViewController: UIViewController {
                 }
                 
                 var imageData: Data?
-                
                 if let url = item as? URL {
                     imageData = try? Data(contentsOf: url)
                 } else if let image = item as? UIImage {
@@ -161,26 +212,27 @@ class ShareViewController: UIViewController {
                     imageData = data
                 }
                 
-                if let data = imageData {
-                    // Resize if too large (max 4MB)
-                    if data.count > 4_000_000, let image = UIImage(data: data) {
-                        let resized = self.resizeImage(image, maxSize: 1920)
-                        if let resizedData = resized.jpegData(compressionQuality: 0.7) {
-                            continuation.resume(returning: resizedData)
-                            return
-                        }
-                    }
-                    continuation.resume(returning: data)
-                } else {
-                    continuation.resume(throwing: NSError(domain: "ShareExtension", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not load image"]))
+                guard let data = imageData else {
+                    continuation.resume(throwing: NSError(domain: "ShareExtension", code: 1,
+                                                         userInfo: [NSLocalizedDescriptionKey: "Could not load image"]))
+                    return
                 }
+                
+                if data.count > 4_000_000, let image = UIImage(data: data) {
+                    let resized = self.resizeImage(image, maxDimension: 1920)
+                    if let resizedData = resized.jpegData(compressionQuality: 0.7) {
+                        continuation.resume(returning: resizedData)
+                        return
+                    }
+                }
+                continuation.resume(returning: data)
             }
         }
     }
     
-    private func resizeImage(_ image: UIImage, maxSize: CGFloat) -> UIImage {
+    private func resizeImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
         let size = image.size
-        let ratio = min(maxSize / size.width, maxSize / size.height)
+        let ratio = min(maxDimension / size.width, maxDimension / size.height)
         if ratio >= 1 { return image }
         
         let newSize = CGSize(width: size.width * ratio, height: size.height * ratio)
@@ -191,67 +243,41 @@ class ShareViewController: UIViewController {
     }
     
     private func loadURL(from attachment: NSItemProvider) async throws -> URL {
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             attachment.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, error in
                 if let error = error {
                     continuation.resume(throwing: error)
                 } else if let url = item as? URL {
                     continuation.resume(returning: url)
                 } else {
-                    continuation.resume(throwing: NSError(domain: "ShareExtension", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not load URL"]))
+                    continuation.resume(throwing: NSError(domain: "ShareExtension", code: 2,
+                                                         userInfo: [NSLocalizedDescriptionKey: "Could not load URL"]))
                 }
             }
         }
     }
     
     private func loadText(from attachment: NSItemProvider) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, error in
                 if let error = error {
                     continuation.resume(throwing: error)
                 } else if let text = item as? String {
                     continuation.resume(returning: text)
                 } else {
-                    continuation.resume(throwing: NSError(domain: "ShareExtension", code: 3, userInfo: [NSLocalizedDescriptionKey: "Could not load text"]))
+                    continuation.resume(throwing: NSError(domain: "ShareExtension", code: 3,
+                                                         userInfo: [NSLocalizedDescriptionKey: "Could not load text"]))
                 }
             }
         }
     }
     
-    private func sendToGateway(url: String, token: String, message: String, imageData: Data?) async throws {
-        // Queue message in app group for main app to process
-        // (Share extensions can't maintain WebSocket connections)
-        if let defaults = UserDefaults(suiteName: appGroupId) {
-            var pendingShares = defaults.array(forKey: "pendingShares") as? [[String: Any]] ?? []
-            
-            var shareItem: [String: Any] = [
-                "message": message,
-                "timestamp": Date().timeIntervalSince1970
-            ]
-            
-            if let imageData = imageData {
-                // Save image to shared container
-                let fileManager = FileManager.default
-                if let containerURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupId) {
-                    let imagesDir = containerURL.appendingPathComponent("SharedImages", isDirectory: true)
-                    try? fileManager.createDirectory(at: imagesDir, withIntermediateDirectories: true)
-                    
-                    let imageId = UUID().uuidString
-                    let imageURL = imagesDir.appendingPathComponent("\(imageId).jpg")
-                    try imageData.write(to: imageURL)
-                    shareItem["imagePath"] = imageURL.path
-                }
-            }
-            
-            pendingShares.append(shareItem)
-            defaults.set(pendingShares, forKey: "pendingShares")
-        }
-    }
+    // MARK: - Result UI
     
     private func showSuccess() {
         progressView.stopAnimating()
         progressView.isHidden = true
-        titleLabel.text = "Sent!"
+        titleLabel.text = "Shared!"
         statusLabel.text = "Open ClawChat to continue the conversation"
         cancelButton.setTitle("Done", for: .normal)
         cancelButton.tintColor = .systemBlue

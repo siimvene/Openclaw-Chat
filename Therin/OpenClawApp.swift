@@ -13,12 +13,11 @@ struct OpenClawApp: App {
                 .environmentObject(sessionManager)
                 .preferredColorScheme(.dark)
                 .onAppear {
-                    // Sync credentials to App Group on launch
+                    KeychainService.migrateToSharedGroup()
                     AppGroupStorage.shared.syncCredentials()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
-                        // Check WebSocket health on foreground return
                         gateway.checkConnectionHealth()
                         processPendingShares()
                     }
@@ -31,14 +30,12 @@ struct OpenClawApp: App {
         guard !shares.isEmpty, gateway.isConnected else { return }
         
         for share in shares {
-            // Send the shared content as a message
-            gateway.sendMessage(share.message)
-            
-            // TODO: Handle image uploads when gateway supports it
-            // if let imagePath = share.imagePath,
-            //    let imageData = AppGroupStorage.shared.loadSharedImage(at: imagePath) {
-            //     gateway.sendImage(imageData, message: share.message)
-            // }
+            if let imagePath = share.imagePath,
+               let imageData = AppGroupStorage.shared.loadSharedImage(at: imagePath) {
+                gateway.sendMessageWithImage(share.message, imageData: imageData)
+            } else {
+                gateway.sendMessage(share.message)
+            }
         }
         
         AppGroupStorage.shared.clearPendingShares()

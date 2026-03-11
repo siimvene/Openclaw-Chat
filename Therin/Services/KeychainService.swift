@@ -3,6 +3,7 @@ import Security
 
 enum KeychainService {
     private static let service = "ai.openclaw.therin"
+    private static let sharedAccessGroup = "D7HDY2ST3C.io.kleidia.clawchat.shared"
     
     enum Key: String {
         case gatewayToken = "gateway_token"
@@ -17,7 +18,8 @@ enum KeychainService {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key.rawValue,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrAccessGroup as String: sharedAccessGroup
         ]
         return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
     }
@@ -28,7 +30,8 @@ enum KeychainService {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key.rawValue,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecAttrAccessGroup as String: sharedAccessGroup
         ]
         var result: AnyObject?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
@@ -42,9 +45,33 @@ enum KeychainService {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key.rawValue
+            kSecAttrAccount as String: key.rawValue,
+            kSecAttrAccessGroup as String: sharedAccessGroup
         ]
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
+    }
+    
+    /// Migrate existing keychain items from the default access group to the shared group.
+    /// Call once on app launch to ensure the extension can access credentials.
+    static func migrateToSharedGroup() {
+        for key in [Key.gatewayToken, Key.gatewayURL] {
+            let oldQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: key.rawValue,
+                kSecReturnData as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne
+            ]
+            var result: AnyObject?
+            guard SecItemCopyMatching(oldQuery as CFDictionary, &result) == errSecSuccess,
+                  let data = result as? Data,
+                  let value = String(data: data, encoding: .utf8) else { continue }
+            
+            if get(key) == nil {
+                _ = save(value, for: key)
+                SecItemDelete(oldQuery as CFDictionary)
+            }
+        }
     }
 }
