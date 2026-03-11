@@ -288,13 +288,9 @@ struct iPadSessionRow: View {
 struct iPadSettingsModal: View {
     @EnvironmentObject var gateway: GatewayClient
     @EnvironmentObject var sessionManager: SessionManager
-    @AppStorage("selectedModel") private var selectedModel = ""
     @AppStorage("gatewayURL") private var gatewayURL = ""
     @AppStorage("gatewayToken") private var gatewayToken = ""
     @AppStorage("chatTextSize") private var chatTextSize: Double = 14
-    @State private var availableModels: [[String: Any]] = []
-    @State private var usageData: UsageData?
-    @State private var isLoading = false
     @State private var showLogoutConfirm = false
     @State private var showWipeConfirm = false
     @Environment(\.dismiss) private var dismiss
@@ -318,42 +314,9 @@ struct iPadSettingsModal: View {
                             settingsDivider
                             settingsRow(icon: "tag", label: "Server Version", value: gateway.serverVersion)
                         }
-                    }
-                    
-                    if let usage = usageData {
-                        settingsSection("Usage") {
-                            settingsRow(icon: "dollarsign.circle", label: "Today Cost", value: usage.todayCost)
+                        if !gateway.activeModel.isEmpty {
                             settingsDivider
-                            settingsRow(icon: "text.bubble", label: "Words In", value: formatTokensAsWords(usage.todayInput))
-                            settingsDivider
-                            settingsRow(icon: "text.bubble.fill", label: "Words Out", value: formatTokensAsWords(usage.todayOutput))
-                            settingsDivider
-                            settingsRow(icon: "dollarsign.circle.fill", label: "Total Cost", value: usage.totalCost)
-                        }
-                    }
-                    
-                    settingsSection("Model") {
-                        if availableModels.isEmpty {
-                            HStack(spacing: 8) {
-                                if isLoading {
-                                    ProgressView()
-                                        .scaleEffect(0.9)
-                                }
-                                Text(isLoading ? "Loading models..." : "No models found")
-                                    .foregroundColor(Color.textMuted)
-                                Spacer()
-                            }
-                        } else {
-                            Picker("Active Model", selection: $selectedModel) {
-                                Text("Default").tag("")
-                                ForEach(availableModels, id: \.description) { model in
-                                    if let id = model["id"] as? String {
-                                        Text(id).tag(id)
-                                    }
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .tint(.white)
+                            settingsRow(icon: "cpu", label: "Model", value: gateway.activeModel)
                         }
                     }
                     
@@ -388,8 +351,6 @@ struct iPadSettingsModal: View {
                     
                     settingsSection("About") {
                         settingsRow(icon: "app.badge", label: "App Version", value: appVersion)
-                        settingsDivider
-                        settingsRow(icon: "number.square", label: "Build", value: buildNumber)
                         settingsDivider
                         settingsRow(icon: "rectangle.stack", label: "Active Session", value: gateway.activeSessionKey)
                     }
@@ -440,24 +401,10 @@ struct iPadSettingsModal: View {
                 Text("This removes all chats and messages stored locally on this device.")
             }
         }
-        .onAppear {
-            Task {
-                isLoading = true
-                if let models = await gateway.getModels() {
-                    availableModels = models
-                }
-                await loadUsageData()
-                isLoading = false
-            }
-        }
     }
     
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
-    }
-    
-    private var buildNumber: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-"
     }
     
     private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -503,46 +450,6 @@ struct iPadSettingsModal: View {
             .frame(height: 1)
     }
     
-    // MARK: - Data Loading
-    
-    @MainActor
-    private func loadUsageData() async {
-        guard gateway.isConnected else { return }
-        isLoading = true
-        
-        if let cost = await gateway.getUsageCost() {
-            usageData = parseCostResponse(cost)
-        }
-        
-        isLoading = false
-    }
-    
-    private func parseCostResponse(_ data: [String: Any]) -> UsageData {
-        let totals = data["totals"] as? [String: Any] ?? [:]
-        let totalInput = totals["input"] as? Int ?? 0
-        let totalOutput = totals["output"] as? Int ?? 0
-        let totalTokens = totals["totalTokens"] as? Int ?? (totalInput + totalOutput)
-        let totalCostValue = totals["totalCost"] as? Double ?? 0
-        
-        var todayInput = 0
-        var todayOutput = 0
-        var todayCostValue = 0.0
-        
-        if let daily = data["daily"] as? [[String: Any]], let today = daily.last {
-            todayInput = today["input"] as? Int ?? 0
-            todayOutput = today["output"] as? Int ?? 0
-            todayCostValue = today["totalCost"] as? Double ?? 0
-        }
-        
-        return UsageData(
-            todayInput: todayInput,
-            todayOutput: todayOutput,
-            todayCost: String(format: "$%.2f", todayCostValue),
-            totalTokens: totalTokens,
-            totalCost: String(format: "$%.2f", totalCostValue)
-        )
-    }
-    
     // MARK: - Helpers
     
     private func formatUptime(_ seconds: Int) -> String {
@@ -559,15 +466,6 @@ struct iPadSettingsModal: View {
         }
     }
     
-    private func formatTokensAsWords(_ tokens: Int) -> String {
-        let words = Int(Double(tokens) * 0.75)
-        if words >= 1_000_000 {
-            return String(format: "%.1fM", Double(words) / 1_000_000)
-        } else if words >= 1_000 {
-            return String(format: "%.1fK", Double(words) / 1_000)
-        }
-        return "\(words)"
-    }
 }
 
 // MARK: - iPad Chat View
@@ -575,14 +473,12 @@ struct iPadSettingsModal: View {
 struct iPadChatView: View {
     @EnvironmentObject var gateway: GatewayClient
     @EnvironmentObject var sessionManager: SessionManager
-    @AppStorage("selectedModel") private var selectedModel = ""
     @AppStorage("chatTextSize") private var chatTextSize: Double = 14
     @State private var fullscreenImage: UIImage?
     @State private var showFullscreenImage = false
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
     
-    // Photo/attachment state
     @State private var showingAttachmentOptions = false
     @State private var showingPhotoPicker = false
     @State private var selectedPhotoItem: PhotosPickerItem?
@@ -591,14 +487,6 @@ struct iPadChatView: View {
     
     private var canSend: Bool {
         !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingImageData != nil
-    }
-    
-    private var displayModel: String {
-        if selectedModel.isEmpty { return "Default" }
-        return selectedModel
-            .replacingOccurrences(of: "anthropic/", with: "")
-            .replacingOccurrences(of: "openai/", with: "")
-            .replacingOccurrences(of: "google/", with: "")
     }
     
     var body: some View {
@@ -669,15 +557,17 @@ struct iPadChatView: View {
                 .font(.system(size: 14))
                 .foregroundColor(Color.textMuted)
             
-            Text(displayModel)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(Color.textMuted)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white.opacity(0.08))
-                )
+            if !gateway.activeModel.isEmpty {
+                Text(gateway.activeModel)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color.textMuted)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.white.opacity(0.08))
+                    )
+            }
             
             Spacer()
         }

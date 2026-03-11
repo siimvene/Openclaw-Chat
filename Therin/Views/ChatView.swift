@@ -111,7 +111,7 @@ struct ChatView: View {
                             .font(.system(size: 14, weight: .bold))
                             .foregroundColor(.white)
                             .lineLimit(1)
-                        Text(gateway.isConnected ? "Online • OpenClaw AI" : "Offline")
+                        Text(gateway.isConnected ? "Online • \(gateway.activeModel.isEmpty ? "OpenClaw AI" : gateway.activeModel)" : "Offline")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(Color.textMuted)
                     }

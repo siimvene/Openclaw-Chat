@@ -6,15 +6,9 @@ struct StatusView: View {
     @Binding var selectedTab: Int
     @AppStorage("gatewayURL") private var gatewayURL = ""
     @AppStorage("gatewayToken") private var gatewayToken = ""
-    @AppStorage("selectedModel") private var selectedModel = ""
     @AppStorage("chatTextSize") private var chatTextSize: Double = 14
-    @State private var usageData: UsageData?
-    @State private var isLoading = false
-    @State private var lastRefresh: Date?
-    @State private var autoRefreshTask: Task<Void, Never>?
     @State private var showLogoutConfirm = false
     @State private var showWipeConfirm = false
-    @State private var availableModels: [[String: Any]] = []
     
     var body: some View {
         NavigationStack {
@@ -31,30 +25,8 @@ struct StatusView: View {
                     if gateway.serverVersion != "dev" && gateway.serverVersion != "Unknown" {
                         StatusRow(icon: "tag", label: "Server Version", value: gateway.serverVersion)
                     }
-                }
-
-                if let usage = usageData {
-                    Section("Usage") {
-                        StatusRow(icon: "dollarsign.circle", label: "Today Cost", value: usage.todayCost)
-                        StatusRow(icon: "text.bubble", label: "Words In", value: formatTokensAsWords(usage.todayInput))
-                        StatusRow(icon: "text.bubble.fill", label: "Words Out", value: formatTokensAsWords(usage.todayOutput))
-                        StatusRow(icon: "dollarsign.circle.fill", label: "Total Cost", value: usage.totalCost)
-                    }
-                }
-
-                Section("Model") {
-                    if availableModels.isEmpty {
-                        Text(isLoading ? "Loading models..." : "No models found")
-                            .foregroundColor(.secondary)
-                    } else {
-                        Picker("Active Model", selection: $selectedModel) {
-                            Text("Default").tag("")
-                            ForEach(availableModels, id: \.description) { model in
-                                if let id = model["id"] as? String {
-                                    Text(id).tag(id)
-                                }
-                            }
-                        }
+                    if !gateway.activeModel.isEmpty {
+                        StatusRow(icon: "cpu", label: "Model", value: gateway.activeModel)
                     }
                 }
 
@@ -83,11 +55,7 @@ struct StatusView: View {
 
                 Section("About") {
                     StatusRow(icon: "app.badge", label: "App Version", value: appVersion)
-                    StatusRow(icon: "number.square", label: "Build", value: buildNumber)
                     StatusRow(icon: "rectangle.stack", label: "Active Session", value: gateway.activeSessionKey)
-                    if let refresh = lastRefresh {
-                        StatusRow(icon: "arrow.clockwise", label: "Updated", value: refresh.formatted(.dateTime.hour().minute().second()))
-                    }
                 }
 
                 Section("Actions") {
@@ -116,93 +84,11 @@ struct StatusView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .overlay {
-                if isLoading && usageData == nil {
-                    ProgressView("Loading...")
-                }
-            }
-            .refreshable {
-                await refresh()
-            }
-            .task {
-                if availableModels.isEmpty && gateway.isConnected {
-                    if let models = await gateway.getModels() {
-                        availableModels = models
-                    }
-                }
-                await refresh()
-                startAutoRefresh()
-            }
-            .onDisappear {
-                autoRefreshTask?.cancel()
-            }
         }
     }
     
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
-    }
-    
-    private var buildNumber: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-"
-    }
-    
-    // MARK: - Auto-refresh
-    
-    private func startAutoRefresh() {
-        autoRefreshTask?.cancel()
-        autoRefreshTask = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30s
-                if !Task.isCancelled {
-                    await refresh()
-                }
-            }
-        }
-    }
-    
-    // MARK: - Data Loading
-    
-    @MainActor
-    private func refresh() async {
-        guard gateway.isConnected else { return }
-        
-        isLoading = true
-        
-        if let cost = await gateway.getUsageCost() {
-            usageData = parseCostResponse(cost)
-        }
-        
-        lastRefresh = Date()
-        isLoading = false
-    }
-    
-    private func parseCostResponse(_ data: [String: Any]) -> UsageData {
-        // Get totals
-        let totals = data["totals"] as? [String: Any] ?? [:]
-        let totalInput = totals["input"] as? Int ?? 0
-        let totalOutput = totals["output"] as? Int ?? 0
-        let totalTokens = totals["totalTokens"] as? Int ?? (totalInput + totalOutput)
-        let totalCostValue = totals["totalCost"] as? Double ?? 0
-        
-        // Get today's data (last item in daily array)
-        var todayInput = 0
-        var todayOutput = 0
-        var todayCostValue = 0.0
-        
-        if let daily = data["daily"] as? [[String: Any]], let today = daily.last {
-            todayInput = today["input"] as? Int ?? 0
-            todayOutput = today["output"] as? Int ?? 0
-            todayCostValue = today["totalCost"] as? Double ?? 0
-        }
-        
-        return UsageData(
-            todayInput: todayInput,
-            todayOutput: todayOutput,
-            todayCost: String(format: "$%.2f", todayCostValue),
-            totalTokens: totalTokens,
-            totalCost: String(format: "$%.2f", totalCostValue)
-        )
     }
     
     // MARK: - Actions
@@ -229,15 +115,6 @@ struct StatusView: View {
         }
     }
     
-    private func formatTokensAsWords(_ tokens: Int) -> String {
-        let words = Int(Double(tokens) * 0.75)
-        if words >= 1_000_000 {
-            return String(format: "%.1fM", Double(words) / 1_000_000)
-        } else if words >= 1_000 {
-            return String(format: "%.1fK", Double(words) / 1_000)
-        }
-        return "\(words)"
-    }
 }
 
 // MARK: - Supporting Views
@@ -259,16 +136,6 @@ struct StatusRow: View {
                 .foregroundColor(.secondary)
         }
     }
-}
-
-// MARK: - Data Models
-
-struct UsageData {
-    let todayInput: Int
-    let todayOutput: Int
-    let todayCost: String
-    let totalTokens: Int
-    let totalCost: String
 }
 
 #Preview {

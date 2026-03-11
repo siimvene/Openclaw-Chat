@@ -26,6 +26,7 @@ class GatewayClient: ObservableObject {
     @Published var lastError: String?
     @Published var uptimeMs: Int = 0
     @Published var voiceResponse: String = ""
+    @Published var activeModel: String = ""
     
     private var webSocket: URLSessionWebSocketTask?
     private var urlSession: URLSession?
@@ -44,6 +45,7 @@ class GatewayClient: ObservableObject {
     private var requestCounter = 0
     private var responseBuffer = ""
     private var isVoiceMode = false
+    private var connectionGeneration = 0
     
     var sessionManager: SessionManager?
     
@@ -84,10 +86,12 @@ class GatewayClient: ObservableObject {
     func getHealth() async -> [String: Any]? {
         guard let url = gatewayURL else { return nil }
         
-        // Build health URL from WebSocket URL
         var healthURL = url
             .replacingOccurrences(of: "wss://", with: "https://")
             .replacingOccurrences(of: "ws://", with: "http://")
+        if !healthURL.hasPrefix("https://") && !healthURL.hasPrefix("http://") {
+            healthURL = "https://" + healthURL
+        }
         if !healthURL.hasSuffix("/") { healthURL += "/" }
         healthURL += "health"
         
@@ -136,14 +140,19 @@ class GatewayClient: ObservableObject {
         
         tearDownSocket()
         
+        connectionGeneration += 1
+        let generation = connectionGeneration
+        
         let delegate = WebSocketDelegate()
         delegate.onOpen = { [weak self] in
             Task { @MainActor in
+                guard self?.connectionGeneration == generation else { return }
                 self?.statusText = "Authenticating..."
             }
         }
         delegate.onClose = { [weak self] code, reason in
             Task { @MainActor in
+                guard self?.connectionGeneration == generation else { return }
                 self?.handleSocketClose(code: code, reason: reason)
             }
         }
@@ -152,11 +161,15 @@ class GatewayClient: ObservableObject {
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
         urlSession = session
         
-        webSocket = session.webSocketTask(with: url)
+        var request = URLRequest(url: url)
+        if let host = url.host {
+            request.setValue("https://\(host)", forHTTPHeaderField: "Origin")
+        }
+        webSocket = session.webSocketTask(with: request)
         webSocket?.resume()
         
-        receiveMessage()
-        startConnectWatchdog()
+        receiveMessage(generation: generation)
+        startConnectWatchdog(generation: generation)
     }
     
     func disconnect() {
@@ -194,7 +207,8 @@ class GatewayClient: ObservableObject {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 guard let self else { return }
-                if !self.isConnected || (self.lastPingAckAt ?? .distantPast) < sentAt {
+                if self.isConnecting || self.isConnected { return }
+                if (self.lastPingAckAt ?? .distantPast) < sentAt {
                     self.forceReconnect(reason: "No ping ack on resume")
                 }
             }
@@ -270,14 +284,17 @@ class GatewayClient: ObservableObject {
         return nil
     }
     
-    func getUsageCost() async -> [String: Any]? {
-        await sendRequest(method: "usage.cost")
+    
+    func fetchActiveModel() async {
+        guard let response = await sendRequest(method: "config.get") else { return }
+        if let agents = response["agents"] as? [String: Any],
+           let defaults = agents["defaults"] as? [String: Any],
+           let model = defaults["model"] as? [String: Any],
+           let primary = model["primary"] as? String {
+            activeModel = primary
+        }
     }
     
-    func getModels() async -> [[String: Any]]? {
-        guard let response = await sendRequest(method: "models.list") else { return nil }
-        return response["models"] as? [[String: Any]]
-    }
     
     func cancelPairing() {
         isPairing = false
@@ -308,25 +325,26 @@ class GatewayClient: ObservableObject {
     
     // MARK: - Private
     
-    private func receiveMessage() {
+    private func receiveMessage(generation: Int) {
         webSocket?.receive { [weak self] result in
             Task { @MainActor in
+                guard let self, self.connectionGeneration == generation else { return }
                 switch result {
                 case .success(let message):
                     switch message {
                     case .string(let text):
-                        self?.handleMessage(text)
+                        self.handleMessage(text)
                     case .data(let data):
                         if let text = String(data: data, encoding: .utf8) {
-                            self?.handleMessage(text)
+                            self.handleMessage(text)
                         }
                     @unknown default:
                         break
                     }
-                    self?.receiveMessage()
+                    self.receiveMessage(generation: generation)
                     
                 case .failure(let error):
-                    self?.handleDisconnect(error: error)
+                    self.handleDisconnect(error: error)
                 }
             }
         }
@@ -364,6 +382,7 @@ class GatewayClient: ObservableObject {
             if let server = payload["server"] as? [String: Any] {
                 serverVersion = server["version"] as? String ?? serverVersion
             }
+            Task { await fetchActiveModel() }
             return
         }
         
@@ -548,11 +567,6 @@ class GatewayClient: ObservableObject {
             ]]
         }
         
-        let selectedModel = UserDefaults.standard.string(forKey: "selectedModel") ?? ""
-        if !selectedModel.isEmpty {
-            params["model"] = selectedModel
-        }
-        
         send([
             "type": "req",
             "id": id,
@@ -583,12 +597,24 @@ class GatewayClient: ObservableObject {
     
     private func handleSocketClose(code: URLSessionWebSocketTask.CloseCode, reason: Data?) {
         let reasonText = reason.flatMap { String(data: $0, encoding: .utf8) } ?? "No reason"
-        if code == .abnormalClosure {
-            lastError = "Connection closed unexpectedly (1006). Reconnecting..."
-        } else {
+        
+        switch code {
+        case .policyViolation, .tlsHandshakeFailure:
             lastError = "Socket closed (\(code.rawValue)): \(reasonText)"
+            statusText = "Connection rejected"
+            isConnected = false
+            isConnecting = false
+            shouldAutoReconnect = false
+            tearDownSocket()
+            
+        case .abnormalClosure:
+            lastError = "Connection closed unexpectedly (1006). Reconnecting..."
+            handleDisconnect(error: NSError(domain: "WebSocket", code: Int(code.rawValue), userInfo: [NSLocalizedDescriptionKey: reasonText]))
+            
+        default:
+            lastError = "Socket closed (\(code.rawValue)): \(reasonText)"
+            handleDisconnect(error: NSError(domain: "WebSocket", code: Int(code.rawValue), userInfo: [NSLocalizedDescriptionKey: reasonText]))
         }
-        handleDisconnect(error: NSError(domain: "WebSocket", code: Int(code.rawValue), userInfo: [NSLocalizedDescriptionKey: reasonText]))
     }
     
     private func handleDisconnect(error: Error) {
@@ -603,18 +629,19 @@ class GatewayClient: ObservableObject {
         reconnectAttempts += 1
         if reconnectAttempts < 5, let url = gatewayURL {
             reconnectTask?.cancel()
+            let delay = reconnectAttempts
             reconnectTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(Double(reconnectAttempts * 2) * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64(Double(delay * 2) * 1_000_000_000))
                 guard let self else { return }
                 self.connect(url: url, token: self.token)
             }
         }
     }
     
-    private func startConnectWatchdog() {
+    private func startConnectWatchdog(generation: Int) {
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 12_000_000_000)
-            guard let self else { return }
+            guard let self, self.connectionGeneration == generation else { return }
             if self.isConnecting && !self.isConnected {
                 self.forceReconnect(reason: "Connect watchdog timeout")
             }

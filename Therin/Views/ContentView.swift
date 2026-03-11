@@ -17,7 +17,8 @@ struct ContentView: View {
                     .onAppear {
                         print("[App] ConnectingView appeared, isConnecting=\(gateway.isConnecting), isConnected=\(gateway.isConnected)")
                         if !gateway.isConnecting && !gateway.isConnected {
-                            gateway.connect(url: gatewayURL, token: gatewayToken)
+                            let token = KeychainService.get(.gatewayToken) ?? gatewayToken
+                            gateway.connect(url: gatewayURL, token: token)
                         }
                     }
             }
@@ -210,8 +211,8 @@ struct ConnectingView: View {
                         .padding()
                     
                     Button("Retry") {
-                        if let url = UserDefaults.standard.string(forKey: "gatewayURL"),
-                           let token = UserDefaults.standard.string(forKey: "gatewayToken") {
+                        if let url = UserDefaults.standard.string(forKey: "gatewayURL") {
+                            let token = KeychainService.get(.gatewayToken) ?? ""
                             gateway.connect(url: url, token: token)
                         }
                     }
