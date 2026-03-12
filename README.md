@@ -11,9 +11,9 @@ A native iOS/iPadOS client for [OpenClaw](https://openclaw.io) — AI on your te
 ## Screenshots
 
 <p float="left">
-  <img src="docs/screenshots/screenshot-sessions.png" width="30%" alt="Sessions" />
+  <img src="docs/screenshots/screenshot-sessions.png" width="30%" alt="Login" />
   <img src="docs/screenshots/screenshot-chat.png" width="30%" alt="Chat" />
-  <img src="docs/screenshots/screenshot-status.png" width="30%" alt="Status" />
+  <img src="docs/screenshots/screenshot-status.png" width="30%" alt="Settings" />
 </p>
 
 ## Features
@@ -21,9 +21,9 @@ A native iOS/iPadOS client for [OpenClaw](https://openclaw.io) — AI on your te
 - **Chat Interface** - Natural conversation with your AI assistant with real-time streaming responses
 - **Voice Mode** - Hands-free voice-to-voice interaction. Speak your questions and hear responses read aloud
 - **Multiple Sessions** - Organize conversations into separate sessions for different topics or projects
-- **Security Audit** - Built-in security scanner to check your gateway configuration
-- **Usage Tracking** - Monitor token usage and costs in real-time
+- **Share Extension** - Share content to ClawChat from any app — text, URLs, and images go straight to your conversation
 - **Image & File Sharing** - Attach photos from your camera or library to send to the AI for analysis
+- **Security Audit** - Built-in security scanner to check your gateway configuration
 - **Tailscale Integration** - Secure connectivity to your gateway over your Tailscale network
 
 ## Requirements
